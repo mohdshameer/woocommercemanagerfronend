@@ -25,6 +25,13 @@ function renderProducts() {
         const stockBadge = getStockBadge(product);
         const image = product.images[0] || 'https://via.placeholder.com/400';
 
+        const priceHtml = (product.sale_price && product.sale_price < product.regular_price)
+            ? `<div class="flex flex-col">
+                <span class="text-lg font-bold text-brand-600">$${product.sale_price.toFixed(2)}</span>
+                <span class="text-xs text-slate-400 line-through">$${product.regular_price.toFixed(2)}</span>
+               </div>`
+            : `<span class="text-lg font-bold text-slate-900">$${product.regular_price.toFixed(2)}</span>`;
+
         if (currentView === 'grid') {
             return `
                 <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl hover:border-brand-200 transition-all duration-300 group cursor-pointer" onclick="openEditModal('${product._id}')">
@@ -39,7 +46,7 @@ function renderProducts() {
                         <p class="text-xs text-slate-500 mb-1 font-mono">${product.sku}</p>
                         <h3 class="font-bold text-slate-800 line-clamp-1 group-hover:text-brand-600 transition-colors">${product.name}</h3>
                         <div class="flex items-center justify-between mt-3">
-                            <span class="text-lg font-bold text-slate-900">$${product.price.toFixed(2)}</span>
+                            ${priceHtml}
                             <div class="flex items-center gap-2 text-sm">
                                 <span class="w-2 h-2 rounded-full ${getStockColor(product)}"></span>
                                 <span class="text-slate-600 font-medium">${product.stock} in stock</span>
@@ -63,7 +70,7 @@ function renderProducts() {
                         <p class="text-sm text-slate-500 truncate">${product.description || 'No description'}</p>
                     </div>
                     <div class="text-right flex-shrink-0">
-                        <p class="text-xl font-bold text-slate-900">$${product.price.toFixed(2)}</p>
+                        ${priceHtml}
                         <p class="text-sm ${getStockTextColor(product)} font-medium mt-1">${product.stock} units</p>
                     </div>
                     <button class="p-3 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-brand-600">
@@ -138,7 +145,8 @@ function openEditModal(id) {
     document.getElementById('modal-subtitle').innerText = `SKU: ${currentProduct.sku}`;
     document.getElementById('edit-name').value = currentProduct.name;
     document.getElementById('edit-sku').value = currentProduct.sku;
-    document.getElementById('edit-price').value = currentProduct.price;
+    document.getElementById('edit-regular-price').value = currentProduct.regular_price || '';
+    document.getElementById('edit-sale-price').value = currentProduct.sale_price || '';
     document.getElementById('edit-category').value = currentProduct.category || '';
     document.getElementById('edit-stock').value = currentProduct.stock;
     document.getElementById('edit-threshold').value = currentProduct.threshold;
@@ -174,7 +182,8 @@ function openAddProductModal() {
     document.getElementById('modal-subtitle').innerText = 'Create a new product listing';
     document.getElementById('edit-name').value = '';
     document.getElementById('edit-sku').value = 'SKU-' + Math.random().toString(36).substr(2, 6).toUpperCase();
-    document.getElementById('edit-price').value = '';
+    document.getElementById('edit-regular-price').value = '';
+    document.getElementById('edit-sale-price').value = '';
     document.getElementById('edit-category').value = '';
 
     const tagSelect = document.getElementById('edit-tags');
@@ -257,6 +266,10 @@ function handleFileSelect(e) { handleFiles(e.target.files); }
 async function handleFiles(files) {
     const formData = new FormData();
     let hasImages = false;
+
+    if (currentProduct && currentProduct._id) {
+        formData.append('productId', currentProduct._id);
+    }
 
     Array.from(files).forEach(file => {
         if (file.type.startsWith('image/')) {
@@ -357,7 +370,8 @@ async function saveProduct() {
     const data = {
         name: document.getElementById('edit-name').value,
         sku: document.getElementById('edit-sku').value,
-        price: parseFloat(document.getElementById('edit-price').value) || 0,
+        regular_price: parseFloat(document.getElementById('edit-regular-price').value) || 0,
+        sale_price: document.getElementById('edit-sale-price').value ? parseFloat(document.getElementById('edit-sale-price').value) : '',
         category: document.getElementById('edit-category').value,
         tags: selectedTags,
         stock: parseInt(document.getElementById('edit-stock').value) || 0,

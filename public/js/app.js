@@ -158,6 +158,17 @@ function showSection(section) {
 
     if (section === 'inventory' && typeof renderInventory === 'function') renderInventory();
     if (section === 'activity' && typeof loadActivity === 'function') loadActivity();
+    if (section === 'settings') {
+        const userManagementSection = document.getElementById('user-management-section');
+        if (userManagementSection) {
+            if (currentUser && currentUser.role === 'admin') {
+                userManagementSection.classList.remove('hidden');
+                if (typeof loadUsers === 'function') loadUsers();
+            } else {
+                userManagementSection.classList.add('hidden');
+            }
+        }
+    }
 }
 
 function toggleMobileMenu() {
@@ -213,9 +224,9 @@ async function syncWooCommerce() {
     }
 
     try {
-        showToast('Starting WooCommerce sync...', 'info');
+        showToast('Refreshing live store data...', 'info');
         const result = await api.post('/woocommerce/sync');
-        showToast(result.message, 'success');
+        showToast('Live store data updated', 'success');
         await loadInitialData();
     } catch (error) {
         showToast(error.message || 'WooCommerce Sync Failed', 'error');

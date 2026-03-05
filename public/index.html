@@ -20,11 +20,10 @@
         class="fixed inset-0 z-50 bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 slide-in-right">
             <div class="text-center mb-8">
-                <div
-                    class="w-16 h-16 bg-gradient-to-br from-brand-500 to-brand-700 rounded-2xl flex items-center justify-center text-white text-2xl mx-auto mb-4 shadow-lg shadow-brand-500/30">
-                    <i class="fas fa-cube"></i>
+                <div class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 drop-shadow-lg">
+                    <img src="/uploads/logo.webp" alt="Site Logo" class="w-full h-full object-contain">
                 </div>
-                <h1 class="text-2xl font-bold text-slate-800">WooManager</h1>
+                <h1 class="text-2xl font-bold text-slate-800">SheShop Manager</h1>
                 <p class="text-slate-500">Sign in to manage your inventory</p>
             </div>
 
@@ -62,13 +61,8 @@
                 </button>
             </form>
 
-            <div class="mt-6 p-4 bg-amber-50 rounded-xl border border-amber-200">
-                <p class="text-xs text-amber-800 text-center">
-                    <i class="fas fa-info-circle mr-1"></i>
-                    Default: admin / admin123
-                </p>
-            </div>
         </div>
+    </div>
     </div>
 
     <!-- Main App (Hidden initially) -->
@@ -78,9 +72,10 @@
         <header
             class="lg:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between fixed top-0 left-0 right-0 z-40">
             <div class="flex items-center gap-3">
-                <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-bold">W
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center">
+                    <img src="/uploads/logo.webp" alt="Site Logo" class="w-full h-full object-contain">
                 </div>
-                <h1 class="font-bold text-slate-800">WC Manager</h1>
+                <h1 class="font-bold text-slate-800">SheShop</h1>
             </div>
             <button onclick="toggleMobileMenu()" class="p-2 hover:bg-slate-100 rounded-lg">
                 <i class="fas fa-bars text-slate-600"></i>
@@ -91,12 +86,11 @@
         <aside id="sidebar"
             class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform -translate-x-full lg:translate-x-0 lg:static transition-transform duration-300 flex flex-col">
             <div class="p-6 border-b border-slate-100 hidden lg:flex items-center gap-3">
-                <div
-                    class="w-10 h-10 bg-gradient-to-br from-brand-500 to-brand-700 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-brand-500/30">
-                    <i class="fas fa-cube"></i>
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center drop-shadow-md">
+                    <img src="/uploads/logo.webp" alt="Site Logo" class="w-full h-full object-contain">
                 </div>
                 <div>
-                    <h1 class="font-bold text-slate-800 text-lg">WooManager</h1>
+                    <h1 class="font-bold text-slate-800 text-lg">SheShop</h1>
                     <p class="text-xs text-slate-500">Product Dashboard</p>
                 </div>
             </div>
@@ -331,6 +325,31 @@
                         </div>
                     </div>
 
+                    <div id="user-management-section" class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="font-bold text-slate-800">User Management</h3>
+                            <button onclick="openAddUserModal()"
+                                class="text-sm px-3 py-1.5 bg-brand-50 text-brand-600 rounded-lg font-medium hover:bg-brand-100 transition-colors">
+                                <i class="fas fa-plus mr-1"></i>Add User
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm text-slate-600">
+                                <thead class="bg-slate-50 text-slate-500 font-medium">
+                                    <tr>
+                                        <th class="px-4 py-2 rounded-l-lg">Username</th>
+                                        <th class="px-4 py-2">Email</th>
+                                        <th class="px-4 py-2">Role</th>
+                                        <th class="px-4 py-2 rounded-r-lg text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-table-body" class="divide-y divide-slate-100">
+                                    <!-- Users injected here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                     <div class="bg-white rounded-2xl border border-slate-200 p-6">
                         <h3 class="font-bold text-slate-800 mb-4">Danger Zone</h3>
                         <button onclick="logout()"
@@ -389,8 +408,13 @@
                             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Price ($)</label>
-                        <input type="number" id="edit-price" step="0.01"
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Regular Price ($)</label>
+                        <input type="number" id="edit-regular-price" step="0.01"
+                            class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Sale Price ($)</label>
+                        <input type="number" id="edit-sale-price" step="0.01"
                             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
                     </div>
                     <div>
@@ -499,6 +523,78 @@
                     </button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div id="add-user-modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeUserModal('add')"></div>
+        <div class="absolute inset-x-0 top-1/2 -translate-y-1/2 mx-auto w-full max-w-md bg-white rounded-2xl shadow-2xl p-6"
+            id="add-user-content">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold text-slate-800">Add New User</h2>
+                <button onclick="closeUserModal('add')" class="text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="add-user-form" class="space-y-4" onsubmit="event.preventDefault(); createUser();">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                    <input type="text" id="new-username" required
+                        class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" id="new-user-email" required
+                        class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                    <input type="password" id="new-user-password" required minlength="6"
+                        class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500">
+                </div>
+                <div class="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                    <button type="button" onclick="closeUserModal('add')"
+                        class="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                    <button type="submit" id="create-user-btn"
+                        class="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-slate-900 font-medium rounded-xl shadow-md transition-all">
+                        Create User
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="change-password-modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeUserModal('password')"></div>
+        <div class="absolute inset-x-0 top-1/2 -translate-y-1/2 mx-auto w-full max-w-md bg-white rounded-2xl shadow-2xl p-6"
+            id="change-password-content">
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800">Change Password</h2>
+                    <p class="text-sm text-slate-500" id="change-password-username">User</p>
+                </div>
+                <button onclick="closeUserModal('password')" class="text-slate-400 hover:text-slate-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="change-password-form" class="space-y-4" onsubmit="event.preventDefault(); updateUserPassword();">
+                <input type="hidden" id="change-password-user-id">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">New Password</label>
+                    <input type="password" id="update-password-input" required minlength="6"
+                        class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500">
+                </div>
+                <div class="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
+                    <button type="button" onclick="closeUserModal('password')"
+                        class="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                    <button type="submit" id="update-password-btn"
+                        class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-md transition-all">
+                        Update Password
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 

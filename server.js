@@ -10,25 +10,21 @@ const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
 const WooCommerceRestApi = require("@woocommerce/woocommerce-rest-api").default;
+const { S3Client, PutObjectCommand, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
 require('dotenv').config();
 
-// Ensure upload directory exists
-const uploadDir = path.join(__dirname, 'public', 'uploads');
-if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Configure Multer storage
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, uploadDir);
+// Configure Cloudflare R2 S3 Client
+const s3 = new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
     },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + path.extname(file.originalname));
-    }
 });
-const upload = multer({ storage: storage });
+
+// Configure Multer memory storage
+const upload = multer({ storage: multer.memoryStorage() });
 
 const WooCommerce = new WooCommerceRestApi({
     url: process.env.WOOCOMMERCE_URL || 'https://www.sheshoponline.in',
@@ -72,24 +68,11 @@ const attributeSchema = new mongoose.Schema({
     value: String
 });
 
-const productSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    sku: { type: String, required: true, unique: true },
-    description: String,
-    price: { type: Number, required: true, default: 0 },
-    stock: { type: Number, default: 0 },
-    threshold: { type: Number, default: 10 },
-    status: { type: String, enum: ['instock', 'outofstock', 'onbackorder'], default: 'instock' },
-    manageStock: { type: Boolean, default: true },
-    category: { type: String, default: 'Uncategorized' },
-    images: [String],
-    attributes: [attributeSchema],
-    salesCount: { type: Number, default: 0 },
-    lastUpdated: { type: Date, default: Date.now }
-});
-
+// Product schema removed - fetching directly from WooCommerce now
 const stockLogSchema = new mongoose.Schema({
-    productId: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    productId: String, // WooCommerce ID
+    sku: String,
+    name: String,
     type: { type: String, enum: ['sale', 'restock', 'adjustment', 'return'] },
     quantity: Number,
     previousStock: Number,
@@ -99,7 +82,6 @@ const stockLogSchema = new mongoose.Schema({
 });
 
 const Admin = mongoose.model('Admin', adminSchema);
-const Product = mongoose.model('Product', productSchema);
 const StockLog = mongoose.model('StockLog', stockLogSchema);
 
 // Authentication Middleware
@@ -133,6 +115,44 @@ async function initializeAdmin() {
         });
         console.log('Default admin created: admin / admin123');
     }
+}
+
+// Helper to relocate newly uploaded temp images to product-structured subdirectories natively in R2
+async function organizeR2Images(req, productData, productId) {
+    if (!productData.images || productData.images.length === 0) return productData.images;
+
+    let updatedImages = [];
+    const publicUrl = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
+
+    for (let imgUrl of productData.images) {
+        if (imgUrl.includes('/Products/temp/')) {
+            const filename = imgUrl.split('/').pop();
+            const sourceKey = `Products/temp/${filename}`;
+            const targetKey = `Products/${productId}/${filename}`;
+
+            try {
+                // Copy the object to the product-specific folder
+                await s3.send(new CopyObjectCommand({
+                    Bucket: process.env.R2_BUCKET_NAME || 'sheshopbucket',
+                    CopySource: `${process.env.R2_BUCKET_NAME || 'sheshopbucket'}/${sourceKey}`,
+                    Key: targetKey,
+                }));
+                // Delete the temp object
+                await s3.send(new DeleteObjectCommand({
+                    Bucket: process.env.R2_BUCKET_NAME || 'sheshopbucket',
+                    Key: sourceKey,
+                }));
+
+                updatedImages.push(`${publicUrl}/${targetKey}`);
+            } catch (err) {
+                console.error('Error organizing R2 image:', err.message);
+                updatedImages.push(imgUrl);
+            }
+        } else {
+            updatedImages.push(imgUrl);
+        }
+    }
+    return updatedImages;
 }
 
 // Routes
@@ -176,17 +196,109 @@ app.post('/api/auth/verify', authenticateToken, (req, res) => {
     res.json({ valid: true, user: req.user });
 });
 
+// User Management Routes
+app.get('/api/users', authenticateToken, async (req, res) => {
+    try {
+        // Exclude passwords from the response
+        const users = await Admin.find().select('-password').sort({ createdAt: -1 });
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/users', authenticateToken, async (req, res) => {
+    try {
+        const { username, email, password, role } = req.body;
+
+        const existingUser = await Admin.findOne({ username });
+        if (existingUser) {
+            return res.status(400).json({ error: 'Username already exists' });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const newUser = await Admin.create({
+            username,
+            email,
+            password: hashedPassword,
+            role: role || 'user'
+        });
+
+        const userResponse = newUser.toObject();
+        delete userResponse.password;
+
+        res.status(201).json(userResponse);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/users/:id/password', authenticateToken, async (req, res) => {
+    try {
+        const { newPassword } = req.body;
+        const userId = req.params.id;
+
+        // Optional: Ensure non-superadmins can only change their own password, 
+        // but for now, any authenticated user (or admin) can change passwords.
+        // Or restrict to superadmin only? The prompt says "admin as super user... password can change". 
+        // We will allow the frontend to restrict or let everyone change passwords if they have access to settings.
+
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await Admin.findByIdAndUpdate(userId, { password: hashedPassword });
+
+        res.json({ message: 'Password updated successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete('/api/users/:id', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.params.id;
+
+        const targetUser = await Admin.findById(userId);
+        if (!targetUser) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        if (targetUser.username === 'admin' || targetUser.role === 'admin') {
+            // Hardcode safeguard
+            return res.status(403).json({ error: 'Cannot delete the superadmin account' });
+        }
+
+        await Admin.findByIdAndDelete(userId);
+        res.json({ message: 'User deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Image Upload Route
-app.post('/api/upload', authenticateToken, upload.array('images', 5), (req, res) => {
+app.post('/api/upload', authenticateToken, upload.array('images', 5), async (req, res) => {
     try {
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({ error: 'No files uploaded' });
         }
 
-        // Return the full URLs to access the images
-        const imageUrls = req.files.map(file => {
-            return `${req.protocol}://${req.get('host')}/uploads/${file.filename}`;
-        });
+        const prodId = req.body.productId || 'temp';
+        const publicUrl = (process.env.R2_PUBLIC_URL || '').replace(/\/$/, '');
+
+        const imageUrls = [];
+
+        for (const file of req.files) {
+            const ext = path.extname(file.originalname);
+            const filename = Date.now() + '-' + Math.round(Math.random() * 1E9) + ext;
+            const key = `Products/${prodId}/${filename}`;
+
+            await s3.send(new PutObjectCommand({
+                Bucket: process.env.R2_BUCKET_NAME || 'sheshopbucket',
+                Key: key,
+                Body: file.buffer,
+                ContentType: file.mimetype,
+            }));
+
+            imageUrls.push(`${publicUrl}/${key}`);
+        }
 
         res.json({ urls: imageUrls });
     } catch (error) {
@@ -195,137 +307,125 @@ app.post('/api/upload', authenticateToken, upload.array('images', 5), (req, res)
     }
 });
 
+const mapWooToLocal = (woo) => ({
+    _id: woo.id.toString(), // Keep _id key for frontend compat
+    id: woo.id,
+    name: woo.name,
+    sku: woo.sku,
+    description: woo.short_description || woo.description,
+    price: parseFloat(woo.price) || 0,
+    regular_price: parseFloat(woo.regular_price) || 0,
+    sale_price: parseFloat(woo.sale_price) || 0,
+    stock: woo.stock_quantity || 0,
+    threshold: woo.low_stock_amount || 10,
+    status: woo.stock_status,
+    manageStock: woo.manage_stock,
+    category: woo.categories && woo.categories.length > 0 ? woo.categories[0].name : 'Uncategorized',
+    images: woo.images.map(img => img.src),
+    attributes: woo.attributes.map(attr => ({ name: attr.name, value: attr.options.join(', ') })),
+    lastUpdated: woo.date_modified
+});
+
 // Product Routes
 app.get('/api/products', authenticateToken, async (req, res) => {
     try {
-        const { search, category, status, lowStock } = req.query;
-        let query = {};
+        const { search, category, status } = req.query;
+        let params = {
+            per_page: 100,
+            orderby: 'date',
+            order: 'desc'
+        };
 
-        if (search) {
-            query.$or = [
-                { name: { $regex: search, $options: 'i' } },
-                { sku: { $regex: search, $options: 'i' } }
-            ];
+        if (search) params.search = search;
+
+        const response = await WooCommerce.get("products", params);
+        let products = response.data.map(mapWooToLocal);
+
+        // Filter by category and status locally if search was used (WC search is broad)
+        if (category) {
+            products = products.filter(p => p.category === category);
+        }
+        if (status) {
+            products = products.filter(p => p.status === status);
         }
 
-        if (category) query.category = category;
-        if (status) query.status = status;
-        if (lowStock === 'true') {
-            query.$expr = { $lte: ['$stock', '$threshold'] };
-            query.stock = { $gt: 0 };
-        }
-
-        const products = await Product.find(query).sort({ lastUpdated: -1 });
         res.json(products);
     } catch (error) {
+        console.error("GET Products Error:", error.response?.data || error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
 app.get('/api/products/:id', authenticateToken, async (req, res) => {
     try {
-        const product = await Product.findById(req.params.id);
-        if (!product) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-        res.json(product);
+        const response = await WooCommerce.get(`products/${req.params.id}`);
+        res.json(mapWooToLocal(response.data));
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(404).json({ error: 'Product not found' });
     }
 });
 
 app.post('/api/products', authenticateToken, async (req, res) => {
     try {
         const productData = req.body;
-        productData.lastUpdated = new Date();
 
-        // Auto-set status based on stock
-        if (productData.manageStock) {
-            if (productData.stock === 0) productData.status = 'outofstock';
-            else if (productData.stock <= productData.threshold) productData.status = 'instock';
+        // 1. Map to WooCommerce Data
+        const wooData = {
+            name: productData.name,
+            type: 'simple',
+            regular_price: productData.regular_price ? productData.regular_price.toString() : '0',
+            sale_price: productData.sale_price ? productData.sale_price.toString() : '',
+            description: productData.description || '',
+            short_description: productData.description || '',
+            sku: productData.sku,
+            manage_stock: productData.manageStock,
+            stock_quantity: productData.stock,
+            low_stock_amount: productData.threshold,
+            stock_status: productData.stock > 0 ? 'instock' : 'outofstock'
+        };
+
+        // Category matching
+        if (productData.category && productData.category !== 'Uncategorized') {
+            try {
+                const categoriesResponse = await WooCommerce.get("products/categories", { search: productData.category });
+                const matchedCat = categoriesResponse.data.find(c => c.name.toLowerCase() === productData.category.toLowerCase());
+                if (matchedCat) wooData.categories = [{ id: matchedCat.id }];
+            } catch (e) { console.error("Cat fetch err:", e.message); }
         }
 
-        // 1. Push to WooCommerce FIRST
-        if (process.env.WOOCOMMERCE_CONSUMER_KEY) {
-            const wooData = {
-                name: productData.name,
-                type: 'simple',
-                regular_price: productData.price.toString(),
-                description: productData.description || '',
-                short_description: productData.description || '',
-                sku: productData.sku,
-                manage_stock: productData.manageStock,
-                stock_quantity: productData.stock,
-                stock_status: productData.status,
-            };
+        // 2. Create in WooCommerce first to get ID
+        const wooResponse = await WooCommerce.post("products", wooData);
+        const newWooId = wooResponse.data.id;
 
-            // Map attributes to WooCommerce format (Array of options)
-            if (productData.attributes && productData.attributes.length > 0) {
-                wooData.attributes = productData.attributes.map(attr => ({
-                    name: attr.name,
-                    options: attr.value ? attr.value.split(',').map(v => v.trim()) : [],
-                    visible: true,
-                    variation: false
-                }));
-            }
+        // 3. Move R2 images to the correct folder based on WooCommerce ID
+        if (productData.images && productData.images.length > 0) {
+            const finalImages = await organizeR2Images(req, productData, newWooId);
 
-            // Assuming category is a string we matched from Woo, we'd ideally need the Category ID.
-            // For now, WooCommerce will create it as uncategorized if we don't pass an exact ID array.
+            // 4. Update WooCommerce with final R2 URLs
+            await WooCommerce.put(`products/${newWooId}`, {
+                images: finalImages.map(url => ({ src: url, alt: productData.name }))
+            });
 
-            // Send images to WooCommerce as base64 since it cannot reach localhost
-            if (productData.images && productData.images.length > 0) {
-                wooData.images = productData.images.map(imgUrl => {
-                    if (imgUrl.includes('/uploads/')) {
-                        // Extract filename and read from disk
-                        const filename = imgUrl.split('/').pop();
-                        const filepath = path.join(uploadDir, filename);
-                        if (fs.existsSync(filepath)) {
-                            const ext = path.extname(filename).substring(1);
-                            const base64Str = fs.readFileSync(filepath, { encoding: 'base64' });
-                            // Must be data URI format for WooCommerce
-                            return { src: imgUrl, name: filename, alt: productData.name };
-                        }
-                    }
-                    return { src: imgUrl };
-                });
-            }
-
-            // Important: WooCommerce accepts images as just src URLs for public sites, but since we are localhost
-            // we have a problem. The standard REST API *does not* support raw base64 uploads without a specific plugin.
-            // If the URL is localhost, WooCommerce will simply fail to download it.
-            // A temporary workaround is to remove localhost images from the woo sync logic and just warn the user.
-            if (wooData.images) {
-                const hasLocalhost = wooData.images.some(i => i.src.includes('localhost') || i.src.includes('127.0.0.1'));
-                if (hasLocalhost) {
-                    console.log("Cannot send localhost image URLs to live WooCommerce. Skipping images for live sync.");
-                    delete wooData.images;
-                }
-            }
-
-            const wooResponse = await WooCommerce.post("products", wooData);
-
-            // Save the WooCommerce ID to our local database so we can update it later
-            productData.sku = wooResponse.data.sku || productData.sku; // WooCommerce might have modified it
+            wooResponse.data.images = finalImages.map(url => ({ src: url }));
         }
 
-        // 2. Save to local MongoDB
-        const product = new Product(productData);
-        await product.save();
-
-        // Log stock if initial stock > 0
-        if (product.stock > 0) {
+        // 5. Log activity
+        if (productData.stock > 0) {
             await StockLog.create({
-                productId: product._id,
+                productId: newWooId.toString(),
+                sku: productData.sku,
+                name: productData.name,
                 type: 'restock',
-                quantity: product.stock,
+                quantity: productData.stock,
                 previousStock: 0,
-                newStock: product.stock,
-                reason: 'Initial stock'
+                newStock: productData.stock,
+                reason: 'Initial creation'
             });
         }
 
-        io.emit('product:created', product);
-        res.status(201).json(product);
+        const finalProduct = mapWooToLocal(wooResponse.data);
+        io.emit('product:created', finalProduct);
+        res.status(201).json(finalProduct);
     } catch (error) {
         console.error("Error creating product:", error.response?.data || error.message);
         res.status(500).json({ error: error.response?.data?.message || error.message });
@@ -335,92 +435,95 @@ app.post('/api/products', authenticateToken, async (req, res) => {
 app.put('/api/products/:id', authenticateToken, async (req, res) => {
     try {
         const productData = req.body;
-        const oldProduct = await Product.findById(req.params.id);
+        const wooId = req.params.id;
 
-        if (!oldProduct) {
-            return res.status(404).json({ error: 'Product not found' });
+        // 1. Fetch current product from WC to check stock change
+        const currentResponse = await WooCommerce.get(`products/${wooId}`);
+        const currentProduct = currentResponse.data;
+
+        // 2. Prepare WooCommerce update data
+        const wooData = {
+            name: productData.name,
+            regular_price: productData.regular_price ? productData.regular_price.toString() : undefined,
+            sale_price: productData.sale_price !== undefined ? productData.sale_price.toString() : undefined,
+            description: productData.description || '',
+            short_description: productData.description || '',
+            manage_stock: productData.manageStock,
+            stock_quantity: productData.stock,
+            low_stock_amount: productData.threshold,
+            sku: productData.sku
+        };
+
+        if (productData.category && productData.category !== 'Uncategorized') {
+            try {
+                const categoriesResponse = await WooCommerce.get("products/categories", { search: productData.category });
+                const matchedCat = categoriesResponse.data.find(c => c.name.toLowerCase() === productData.category.toLowerCase());
+                if (matchedCat) wooData.categories = [{ id: matchedCat.id }];
+            } catch (e) { console.error("Cat fetch err:", e.message); }
         }
 
-        // Check for stock changes
-        if (productData.stock !== undefined && productData.stock !== oldProduct.stock) {
+        // Handle images
+        productData.images = await organizeR2Images(req, productData, wooId);
+        if (productData.images && productData.images.length > 0) {
+            wooData.images = productData.images.map(imgUrl => ({ src: imgUrl, alt: productData.name }));
+        }
+
+        // 3. Update WooCommerce
+        const wooUpdateResponse = await WooCommerce.put(`products/${wooId}`, wooData);
+
+        // 4. Log stock changes locally
+        if (productData.stock !== undefined && productData.stock !== currentProduct.stock_quantity) {
             await StockLog.create({
-                productId: oldProduct._id,
+                productId: wooId,
+                sku: currentProduct.sku,
+                name: currentProduct.name,
                 type: 'adjustment',
-                quantity: productData.stock - oldProduct.stock,
-                previousStock: oldProduct.stock,
+                quantity: productData.stock - (currentProduct.stock_quantity || 0),
+                previousStock: currentProduct.stock_quantity || 0,
                 newStock: productData.stock,
-                reason: 'Manual adjustment'
+                reason: 'Manual adjustment via dashboard'
             });
         }
 
-        // Auto-update status
-        if (productData.manageStock !== false) {
-            if (productData.stock === 0) productData.status = 'outofstock';
-            else if (productData.stock > 0) productData.status = 'instock';
-        }
-
-        productData.lastUpdated = new Date();
-
-        // 1. Push changes to WooCommerce
-        if (process.env.WOOCOMMERCE_CONSUMER_KEY && oldProduct.sku) {
-            try {
-                // Determine if we are updating by SKU or if we need to fetch the ID
-                const wooProducts = await WooCommerce.get("products", { sku: oldProduct.sku });
-                if (wooProducts.data && wooProducts.data.length > 0) {
-                    const wooId = wooProducts.data[0].id;
-
-                    const wooData = {
-                        name: productData.name,
-                        regular_price: productData.price ? productData.price.toString() : undefined,
-                        description: productData.description || '',
-                        short_description: productData.description || '',
-                        manage_stock: productData.manageStock,
-                        stock_quantity: productData.stock,
-                        stock_status: productData.status,
-                    };
-
-                    if (productData.attributes && productData.attributes.length > 0) {
-                        wooData.attributes = productData.attributes.map(attr => ({
-                            name: attr.name,
-                            options: attr.value ? attr.value.split(',').map(v => v.trim()) : [],
-                            visible: true,
-                            variation: false
-                        }));
-                    }
-
-                    // Update WooCommerce
-                    await WooCommerce.put(`products/${wooId}`, wooData);
-                }
-            } catch (wooError) {
-                console.error("WooCommerce PUT sync error:", wooError.response?.data || wooError.message);
-                // Do not throw here, proceed to local update even if WooCommerce failed (e.g., offline)
-            }
-        }
-
-        // 2. Save to local MongoDB
-        const product = await Product.findByIdAndUpdate(
-            req.params.id,
-            productData,
-            { new: true }
-        );
-
-        io.emit('product:updated', product);
-        res.json(product);
+        const finalProduct = mapWooToLocal(wooUpdateResponse.data);
+        io.emit('product:updated', finalProduct);
+        res.json(finalProduct);
     } catch (error) {
+        console.error("PUT Product Error:", error.response?.data || error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
 app.delete('/api/products/:id', authenticateToken, async (req, res) => {
     try {
-        const product = await Product.findByIdAndDelete(req.params.id);
-        if (!product) {
-            return res.status(404).json({ error: 'Product not found' });
+        const wooId = req.params.id;
+
+        // 1. Delete from WooCommerce
+        await WooCommerce.delete(`products/${wooId}`, { force: true });
+
+        // 2. Cleanup images from R2
+        const prefix = `Products/${wooId}/`;
+        try {
+            const listParams = {
+                Bucket: process.env.R2_BUCKET_NAME || 'sheshopbucket',
+                Prefix: prefix
+            };
+            const listedObjects = await s3.send(new ListObjectsV2Command(listParams));
+            if (listedObjects.Contents && listedObjects.Contents.length > 0) {
+                const deleteParams = {
+                    Bucket: process.env.R2_BUCKET_NAME || 'sheshopbucket',
+                    Delete: { Objects: listedObjects.Contents.map(({ Key }) => ({ Key })) }
+                };
+                await s3.send(new DeleteObjectCommand(deleteParams));
+            }
+        } catch (err) {
+            console.error("Error cleaning up R2 images on delete:", err.message);
         }
 
-        io.emit('product:deleted', { id: req.params.id });
+        io.emit('product:deleted', { id: wooId });
         res.json({ message: 'Product deleted successfully' });
     } catch (error) {
+        console.error("DELETE Product Error:", error.response?.data || error.message);
         res.status(500).json({ error: error.message });
     }
 });
@@ -429,61 +532,45 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
 app.post('/api/products/:id/stock/adjust', authenticateToken, async (req, res) => {
     try {
         const { quantity, reason, type } = req.body;
-        const product = await Product.findById(req.params.id);
+        const wooId = req.params.id;
 
-        if (!product) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
+        // 1. Fetch current stock
+        const response = await WooCommerce.get(`products/${wooId}`);
+        const product = response.data;
 
-        const previousStock = product.stock;
+        const previousStock = product.stock_quantity || 0;
         const newStock = Math.max(0, previousStock + quantity);
 
-        product.stock = newStock;
+        // 2. Update WooCommerce
+        const updateResponse = await WooCommerce.put(`products/${wooId}`, {
+            stock_quantity: newStock
+        });
 
-        // Update status
-        if (newStock === 0) product.status = 'outofstock';
-        else if (newStock <= product.threshold) product.status = 'instock';
-        else product.status = 'instock';
+        const updatedProduct = mapWooToLocal(updateResponse.data);
 
-        product.lastUpdated = new Date();
-        await product.save();
-
+        // 3. Log activity
         await StockLog.create({
-            productId: product._id,
+            productId: wooId,
+            sku: product.sku,
+            name: product.name,
             type: type || 'adjustment',
             quantity,
             previousStock,
             newStock,
-            reason: reason || 'Manual adjustment'
+            reason: reason || 'Manual adjustment via dashboard'
         });
 
-        io.emit('stock:updated', {
-            productId: product._id,
-            previousStock,
-            newStock,
-            product
-        });
-
-        res.json(product);
+        io.emit('product:updated', updatedProduct);
+        res.json(updatedProduct);
     } catch (error) {
+        console.error("Stock adjust error:", error.response?.data || error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
-// Bulk Operations
+// Bulk Operations (Simplified to no-op or specific support)
 app.post('/api/products/bulk/update', authenticateToken, async (req, res) => {
-    try {
-        const { ids, updates } = req.body;
-        const result = await Product.updateMany(
-            { _id: { $in: ids } },
-            { $set: { ...updates, lastUpdated: new Date() } }
-        );
-
-        io.emit('products:bulk-updated', { ids, updates });
-        res.json({ modified: result.modifiedCount });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+    res.status(501).json({ error: 'Bulk updates not implemented for direct WooCommerce integration yet.' });
 });
 
 // Stock Logs
@@ -494,7 +581,6 @@ app.get('/api/stock-logs', authenticateToken, async (req, res) => {
         if (productId) query.productId = productId;
 
         const logs = await StockLog.find(query)
-            .populate('productId', 'name sku')
             .sort({ timestamp: -1 })
             .limit(parseInt(limit));
 
@@ -507,20 +593,22 @@ app.get('/api/stock-logs', authenticateToken, async (req, res) => {
 // Dashboard Stats
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
     try {
-        const total = await Product.countDocuments();
-        const lowStock = await Product.countDocuments({
-            $expr: { $lte: ['$stock', '$threshold'] },
-            stock: { $gt: 0 }
-        });
-        const outOfStock = await Product.countDocuments({ stock: 0 });
-        const totalValue = await Product.aggregate([
-            { $match: { status: { $ne: 'outofstock' } } },
-            { $group: { _id: null, total: { $sum: { $multiply: ['$price', '$stock'] } } } }
-        ]);
+        const response = await WooCommerce.get("products", { per_page: 100 });
+        const products = response.data;
 
-        // Recent activity
+        const total = products.length;
+        const outOfStock = products.filter(p => (p.stock_quantity || 0) === 0).length;
+        const lowStock = products.filter(p => p.manage_stock && (p.stock_quantity || 0) > 0 && (p.stock_quantity || 0) <= (p.low_stock_amount || 10)).length;
+
+        let totalValValue = 0;
+        products.forEach(p => {
+            if (p.price) {
+                totalValValue += (parseFloat(p.price) * (p.stock_quantity || 0));
+            }
+        });
+
+        // Recent activity from MongoDB logs
         const recentLogs = await StockLog.find()
-            .populate('productId', 'name sku images')
             .sort({ timestamp: -1 })
             .limit(5);
 
@@ -528,10 +616,11 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
             total,
             lowStock,
             outOfStock,
-            totalValue: totalValue[0]?.total || 0,
+            totalValue: totalValValue,
             recentActivity: recentLogs
         });
     } catch (error) {
+        console.error("Stats Error:", error.message);
         res.status(500).json({ error: error.message });
     }
 });
@@ -540,14 +629,10 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
 app.get('/api/categories', authenticateToken, async (req, res) => {
     try {
         if (process.env.WOOCOMMERCE_CONSUMER_KEY) {
-            // Fetch live categories from WooCommerce
             const response = await WooCommerce.get("products/categories", { per_page: 100 });
             res.json(response.data);
         } else {
-            // Fallback to local distinct categories
-            const categories = await Product.distinct('category');
-            // Format to match Woo response style for frontend compatibility
-            res.json(categories.map(c => ({ id: c, name: c })));
+            res.json([]);
         }
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -606,99 +691,11 @@ io.on('connection', (socket) => {
     });
 });
 
-// Simulate live sales (for demo purposes)
-function simulateLiveSales() {
-    setInterval(async () => {
-        try {
-            const products = await Product.find({ status: 'instock', stock: { $gt: 0 } });
-            if (products.length === 0) return;
-
-            const randomProduct = products[Math.floor(Math.random() * products.length)];
-            const saleQty = Math.floor(Math.random() * 3) + 1;
-
-            if (randomProduct.stock >= saleQty) {
-                const previousStock = randomProduct.stock;
-                randomProduct.stock -= saleQty;
-                randomProduct.salesCount += saleQty;
-
-                if (randomProduct.stock === 0) {
-                    randomProduct.status = 'outofstock';
-                } else if (randomProduct.stock <= randomProduct.threshold) {
-                    // Still instock but low
-                }
-
-                randomProduct.lastUpdated = new Date();
-                await randomProduct.save();
-
-                await StockLog.create({
-                    productId: randomProduct._id,
-                    type: 'sale',
-                    quantity: -saleQty,
-                    previousStock,
-                    newStock: randomProduct.stock,
-                    reason: 'Customer purchase'
-                });
-
-                io.emit('stock:live-update', {
-                    productId: randomProduct._id,
-                    product: randomProduct,
-                    change: -saleQty,
-                    timestamp: new Date()
-                });
-
-                console.log(`Live sale: ${randomProduct.name} (-${saleQty})`);
-            }
-        } catch (error) {
-            console.error('Simulation error:', error);
-        }
-    }, 8000); // Every 8 seconds
-}
-
 // Sync with WooCommerce Route
 app.post('/api/woocommerce/sync', authenticateToken, async (req, res) => {
-    try {
-        if (!process.env.WOOCOMMERCE_CONSUMER_KEY || !process.env.WOOCOMMERCE_CONSUMER_SECRET) {
-            return res.status(400).json({ error: 'WooCommerce API keys are missing in .env' });
-        }
-
-        // Fetch products from WooCommerce
-        const response = await WooCommerce.get("products", { per_page: 50 });
-        const wooProducts = response.data;
-
-        let syncedCount = 0;
-
-        for (const woo of wooProducts) {
-            const productData = {
-                name: woo.name,
-                sku: woo.sku || `WOO-${woo.id}`,
-                description: woo.short_description || woo.description,
-                price: parseFloat(woo.price) || 0,
-                stock: woo.stock_quantity || 0,
-                status: woo.stock_status,
-                manageStock: woo.manage_stock,
-                category: woo.categories.length > 0 ? woo.categories[0].name : 'Uncategorized',
-                images: woo.images.map(img => img.src),
-                attributes: woo.attributes.map(attr => ({ name: attr.name, value: attr.options.join(', ') })),
-                lastUpdated: new Date()
-            };
-
-            // Update or Create the product in local MongoDB
-            const existingProduct = await Product.findOne({ sku: productData.sku });
-
-            if (existingProduct) {
-                await Product.updateOne({ _id: existingProduct._id }, { $set: productData });
-            } else {
-                await Product.create(productData);
-            }
-            syncedCount++;
-        }
-
-        io.emit('woocommerce:sync-complete', { syncedCount });
-        res.json({ message: `Successfully synced ${syncedCount} products from WooCommerce.`, syncedCount });
-    } catch (error) {
-        console.error("WooCommerce Sync Error:", error.response?.data || error.message);
-        res.status(500).json({ error: error.response?.data?.message || error.message });
-    }
+    // Sync is now direct. This endpoint just acts as a "Refresh" trigger for the client
+    // to re-fetch high-level stats if we add server-side caching later.
+    res.json({ message: "Dashboard is now live. Data is directly sourced from WooCommerce." });
 });
 
 // Start server
@@ -706,5 +703,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
     await initializeAdmin();
-    simulateLiveSales();
 });

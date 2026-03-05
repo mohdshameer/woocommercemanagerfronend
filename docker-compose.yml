@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongo:27017/woocommerce-manager
+      - WOOCOMMERCE_URL=https://dummy-store.com
+      - WOOCOMMERCE_CONSUMER_KEY=ck_dummy1234567890
+      - WOOCOMMERCE_CONSUMER_SECRET=cs_dummy1234567890
+      - JWT_SECRET=dummy_jwt_secret_key_123
+      - R2_ACCOUNT_ID=dummy_r2_account_id
+      - R2_ACCESS_KEY_ID=dummy_r2_access_key
+      - R2_SECRET_ACCESS_KEY=dummy_r2_secret_key
+      - R2_BUCKET_NAME=dummy-bucket
+      - R2_PUBLIC_URL=https://pub-dummy.r2.dev
+    depends_on:
+      - mongo
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
