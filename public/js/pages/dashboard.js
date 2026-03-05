@@ -8,7 +8,7 @@ function updateStatsDisplay(stats) {
     const elOut = document.getElementById('stat-out');
     if (elOut) elOut.textContent = stats.outOfStock;
     const elValue = document.getElementById('stat-value');
-    if (elValue) elValue.textContent = '$' + stats.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    if (elValue) elValue.textContent = '₹' + stats.totalValue.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
 async function updateStats() {

@@ -1,4 +1,11 @@
 // Inventory Management Functions
+let currentInventoryPage = 1;
+const inventoryPerPage = 20;
+
+function changeInventoryPage(page) {
+    currentInventoryPage = page;
+    renderInventory();
+}
 
 function renderInventory() {
     const container = document.getElementById('inventory-list');
@@ -6,7 +13,13 @@ function renderInventory() {
 
     const sorted = [...products].sort((a, b) => a.stock - b.stock);
 
-    container.innerHTML = sorted.map(product => {
+    const totalPages = Math.ceil(sorted.length / inventoryPerPage);
+    if (currentInventoryPage > totalPages) currentInventoryPage = totalPages || 1;
+
+    const startIndex = (currentInventoryPage - 1) * inventoryPerPage;
+    const paginatedInventory = sorted.slice(startIndex, startIndex + inventoryPerPage);
+
+    container.innerHTML = paginatedInventory.map(product => {
         const percent = Math.min((product.stock / (product.threshold * 2)) * 100, 100);
         const color = product.stock === 0 ? 'bg-red-500' : product.stock <= product.threshold ? 'bg-amber-500' : 'bg-emerald-500';
 
@@ -40,4 +53,29 @@ function renderInventory() {
             </div>
         `;
     }).join('');
+
+    // Pagination HTML
+    const paginationContainer = document.getElementById('inventory-pagination');
+    if (paginationContainer) {
+        if (totalPages > 1) {
+            paginationContainer.innerHTML = `
+                <div class="flex items-center justify-between mt-6 px-2">
+                    <span class="text-sm text-slate-500">Showing ${startIndex + 1} to ${Math.min(startIndex + inventoryPerPage, sorted.length)} of ${sorted.length} entries</span>
+                    <div class="flex items-center gap-2">
+                        <button onclick="changeInventoryPage(${currentInventoryPage - 1})" ${currentInventoryPage === 1 ? 'disabled' : ''} 
+                            class="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-medium ${currentInventoryPage === 1 ? 'text-slate-400 bg-slate-50 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-50 bg-white transition-colors'}">
+                            Previous
+                        </button>
+                        <span class="text-sm font-medium text-slate-700 mx-2">Page ${currentInventoryPage} of ${totalPages}</span>
+                        <button onclick="changeInventoryPage(${currentInventoryPage + 1})" ${currentInventoryPage === totalPages ? 'disabled' : ''} 
+                            class="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-medium ${currentInventoryPage === totalPages ? 'text-slate-400 bg-slate-50 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-50 bg-white transition-colors'}">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            `;
+        } else {
+            paginationContainer.innerHTML = '';
+        }
+    }
 }

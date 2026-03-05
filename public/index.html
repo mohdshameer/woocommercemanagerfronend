@@ -9,8 +9,50 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/css/tom-select.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/tom-select@2.2.2/dist/js/tom-select.complete.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <link rel="stylesheet" href="/css/style.css">
+    <style>
+        .ts-control {
+            border-radius: 0.75rem !important;
+            border-color: #e2e8f0 !important;
+            padding: 0.625rem 1rem !important;
+            background-color: #f8fafc !important;
+            min-height: 44px;
+        }
+
+        .ts-control.focus {
+            border-color: #8b5cf6 !important;
+            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2) !important;
+            background-color: #ffffff !important;
+        }
+
+        .focus .ts-control {
+            border-color: #8b5cf6 !important;
+            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2) !important;
+        }
+
+        .ts-dropdown {
+            border-radius: 0.75rem !important;
+            overflow: hidden;
+            border-color: #e2e8f0 !important;
+            font-size: 0.875rem;
+        }
+
+        .ts-wrapper.multi .ts-control>div {
+            border-radius: 0.375rem;
+            background: #f1f5f9;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+            padding: 2px 6px;
+            margin: 2px;
+        }
+
+        .ts-wrapper.multi .ts-control>div.active {
+            background: #e2e8f0;
+        }
+    </style>
 </head>
 
 <body class="bg-slate-50 text-slate-800 antialiased overflow-hidden">
@@ -235,10 +277,10 @@
                             <span class="text-slate-500 text-sm font-medium">Inventory Value</span>
                             <div
                                 class="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
-                                <i class="fas fa-dollar-sign text-sm"></i>
+                                <i class="fas fa-rupee-sign text-sm"></i>
                             </div>
                         </div>
-                        <p class="text-2xl font-bold text-slate-800" id="stat-value">$0</p>
+                        <p class="text-2xl font-bold text-slate-800" id="stat-value">₹0</p>
                     </div>
                 </div>
 
@@ -263,6 +305,8 @@
                         <!-- Products injected here -->
                     </div>
 
+                    <div id="products-pagination"></div>
+
                     <div id="empty-state" class="hidden flex flex-col items-center justify-center py-20 text-center">
                         <div class="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mb-4">
                             <i class="fas fa-search text-3xl text-slate-400"></i>
@@ -283,6 +327,7 @@
                     <div id="inventory-list" class="space-y-3">
                         <!-- Inventory items injected here -->
                     </div>
+                    <div id="inventory-pagination"></div>
                 </div>
             </div>
 
@@ -403,17 +448,25 @@
                             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500">
                     </div>
                     <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
+                        <select id="edit-type"
+                            class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                            <option value="simple">Simple Product</option>
+                            <option value="variable">Variable Product</option>
+                        </select>
+                    </div>
+                    <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">SKU</label>
                         <input type="text" id="edit-sku"
                             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Regular Price ($)</label>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Regular Price (₹)</label>
                         <input type="number" id="edit-regular-price" step="0.01"
                             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Sale Price ($)</label>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Sale Price (₹)</label>
                         <input type="number" id="edit-sale-price" step="0.01"
                             class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
                     </div>
@@ -433,97 +486,113 @@
                         <p class="text-xs text-slate-400 mt-1">Hold Ctrl/Cmd to select multiple</p>
                     </div>
                 </div>
+            </div>
 
-                <!-- Stock Management -->
-                <div class="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                    <div class="flex items-center justify-between mb-4">
-                        <label class="block text-sm font-semibold text-slate-700">Stock Management</label>
-                        <label class="relative inline-flex items-center cursor-pointer">
-                            <input type="checkbox" id="edit-manage-stock" class="sr-only peer"
-                                onchange="toggleStockManagement()">
-                            <div
-                                class="w-11 h-6 bg-slate-200 peer-focus:ring-4 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600">
-                            </div>
-                        </label>
-                    </div>
-
-                    <div id="stock-controls" class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-medium text-slate-600 mb-1">Current Stock</label>
-                            <div class="flex items-center gap-2">
-                                <button onclick="adjustStock(-1)"
-                                    class="w-10 h-10 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600">
-                                    <i class="fas fa-minus"></i>
-                                </button>
-                                <input type="number" id="edit-stock"
-                                    class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-center font-bold text-slate-800">
-                                <button onclick="adjustStock(1)"
-                                    class="w-10 h-10 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600">
-                                    <i class="fas fa-plus"></i>
-                                </button>
-                            </div>
+            <!-- Stock Management -->
+            <div class="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                <div class="flex items-center justify-between mb-4">
+                    <label class="block text-sm font-semibold text-slate-700">Stock Management</label>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="edit-manage-stock" class="sr-only peer"
+                            onchange="toggleStockManagement()">
+                        <div
+                            class="w-11 h-6 bg-slate-200 peer-focus:ring-4 peer-focus:ring-brand-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-600">
                         </div>
-                        <div>
-                            <label class="block text-xs font-medium text-slate-600 mb-1">Low Stock Threshold</label>
-                            <input type="number" id="edit-threshold"
-                                class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg">
+                    </label>
+                </div>
+
+                <div id="stock-controls" class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Current Stock</label>
+                        <div class="flex items-center gap-2">
+                            <button onclick="adjustStock(-1)"
+                                class="w-10 h-10 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600">
+                                <i class="fas fa-minus"></i>
+                            </button>
+                            <input type="number" id="edit-stock"
+                                class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-center font-bold text-slate-800">
+                            <button onclick="adjustStock(1)"
+                                class="w-10 h-10 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-600">
+                                <i class="fas fa-plus"></i>
+                            </button>
                         </div>
                     </div>
-
-                    <div class="mt-4 flex items-center gap-4">
-                        <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="stock_status" value="instock" id="status-instock"
-                                class="w-4 h-4 text-brand-600">
-                            <span class="text-sm text-slate-700">In Stock</span>
-                        </label>
-                        <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="stock_status" value="outofstock" id="status-outofstock"
-                                class="w-4 h-4 text-red-600">
-                            <span class="text-sm text-slate-700">Out of Stock</span>
-                        </label>
-                        <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="radio" name="stock_status" value="onbackorder" id="status-backorder"
-                                class="w-4 h-4 text-amber-600">
-                            <span class="text-sm text-slate-700">Backorder</span>
-                        </label>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-600 mb-1">Low Stock Threshold</label>
+                        <input type="number" id="edit-threshold"
+                            class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg">
                     </div>
                 </div>
 
-                <!-- Attributes -->
-                <div>
-                    <div class="flex items-center justify-between mb-3">
-                        <label class="block text-sm font-semibold text-slate-700">Attributes</label>
-                        <button onclick="addAttributeField()"
-                            class="text-sm text-brand-600 hover:text-brand-700 font-medium">
-                            <i class="fas fa-plus mr-1"></i>Add
-                        </button>
-                    </div>
-                    <div id="attributes-container" class="space-y-2"></div>
-                </div>
-
-                <!-- Description -->
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700 mb-2">Description</label>
-                    <textarea id="edit-description" rows="3"
-                        class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl resize-none"></textarea>
+                <div class="mt-4 flex items-center gap-4">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="stock_status" value="instock" id="status-instock"
+                            class="w-4 h-4 text-brand-600">
+                        <span class="text-sm text-slate-700">In Stock</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="stock_status" value="outofstock" id="status-outofstock"
+                            class="w-4 h-4 text-red-600">
+                        <span class="text-sm text-slate-700">Out of Stock</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="stock_status" value="onbackorder" id="status-backorder"
+                            class="w-4 h-4 text-amber-600">
+                        <span class="text-sm text-slate-700">Backorder</span>
+                    </label>
                 </div>
             </div>
 
-            <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
-                <button onclick="deleteProduct()"
-                    class="text-red-600 hover:text-red-700 font-medium text-sm px-4 py-2 rounded-lg hover:bg-red-50">
-                    <i class="fas fa-trash-alt mr-2"></i>Delete
-                </button>
-                <div class="flex items-center gap-3">
-                    <button onclick="closeModal()"
-                        class="px-5 py-2.5 text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
-                    <button onclick="saveProduct()"
-                        class="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-slate-900 font-medium rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2">
-                        <i class="fas fa-save"></i>Save Changes
+            <!-- Attributes -->
+            <div>
+                <div class="flex items-center justify-between mb-3">
+                    <label class="block text-sm font-semibold text-slate-700">Attributes</label>
+                    <button onclick="addAttributeField()"
+                        class="text-sm text-brand-600 hover:text-brand-700 font-medium">
+                        <i class="fas fa-plus mr-1"></i>Add
                     </button>
                 </div>
+                <div id="attributes-container" class="space-y-2"></div>
+
+                <!-- Variations Preview (Hidden for Simple Products) -->
+                <div id="variations-section" class="mt-4 hidden border-t border-slate-200 pt-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <label class="block text-sm font-semibold text-slate-700">Variations</label>
+                        <button onclick="previewVariations()"
+                            class="text-sm px-3 py-1.5 bg-brand-50 text-brand-600 rounded-lg font-medium hover:bg-brand-100 transition-colors">
+                            <i class="fas fa-magic mr-1"></i>Generate Variations
+                        </button>
+                    </div>
+                    <div id="variations-preview-container" class="space-y-2 text-sm text-slate-600">
+                        <p class="text-xs text-slate-400 italic">Click "Generate Variations" to preview the combinations
+                            that will be created.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Description -->
+            <div>
+                <label class="block text-sm font-semibold text-slate-700 mb-2">Description</label>
+                <textarea id="edit-description" rows="3"
+                    class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl resize-none"></textarea>
             </div>
         </div>
+
+        <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+            <button onclick="deleteProduct()"
+                class="text-red-600 hover:text-red-700 font-medium text-sm px-4 py-2 rounded-lg hover:bg-red-50">
+                <i class="fas fa-trash-alt mr-2"></i>Delete
+            </button>
+            <div class="flex items-center gap-3">
+                <button onclick="closeModal()"
+                    class="px-5 py-2.5 text-slate-600 hover:text-slate-800 font-medium">Cancel</button>
+                <button onclick="saveProduct()"
+                    class="px-6 py-2.5 bg-brand-600 hover:bg-brand-700 text-slate-900 font-medium rounded-xl shadow-lg transition-all active:scale-95 flex items-center gap-2">
+                    <i class="fas fa-save"></i>Save Changes
+                </button>
+            </div>
+        </div>
+    </div>
     </div>
 
     <!-- Add User Modal -->
@@ -600,6 +669,18 @@
 
     <!-- Toast Container -->
     <div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Global Preloader -->
+    <div id="global-preloader"
+        class="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex-col items-center justify-center hidden">
+        <div class="relative w-16 h-16 mb-4">
+            <div class="absolute inset-0 rounded-full border-4 border-slate-200/20"></div>
+            <div class="absolute inset-0 rounded-full border-4 border-brand-500 border-t-transparent animate-spin">
+            </div>
+        </div>
+        <div class="text-white font-medium bg-slate-900/80 px-4 py-2 rounded-xl shadow-lg backdrop-blur-md"
+            id="preloader-text">Loading...</div>
+    </div>
 
     <script src="/js/api.js"></script>
     <script src="/js/pages/login.js"></script>

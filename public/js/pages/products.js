@@ -1,3 +1,29 @@
+let currentProductPage = 1;
+const productsPerPage = 10;
+let tagsSelectInstance = null;
+let attributeSelectInstances = [];
+
+function initTagsSelect() {
+    if (tagsSelectInstance) {
+        tagsSelectInstance.destroy();
+        tagsSelectInstance = null;
+    }
+    const el = document.getElementById('edit-tags');
+    if (el) {
+        tagsSelectInstance = new TomSelect(el, {
+            plugins: ['remove_button'],
+            create: true,
+            persist: false,
+            placeholder: 'Select or type tags...'
+        });
+    }
+}
+
+function changeProductPage(page) {
+    currentProductPage = page;
+    renderProducts();
+}
+
 // Products Display
 function renderProducts() {
     const container = document.getElementById('products-container');
@@ -21,16 +47,22 @@ function renderProducts() {
     const navCount = document.getElementById('nav-count');
     if (navCount) navCount.textContent = products.length;
 
-    container.innerHTML = filtered.map(product => {
+    const totalPages = Math.ceil(filtered.length / productsPerPage);
+    if (currentProductPage > totalPages) currentProductPage = totalPages || 1;
+
+    const startIndex = (currentProductPage - 1) * productsPerPage;
+    const paginatedProducts = filtered.slice(startIndex, startIndex + productsPerPage);
+
+    container.innerHTML = paginatedProducts.map(product => {
         const stockBadge = getStockBadge(product);
         const image = product.images[0] || 'https://via.placeholder.com/400';
 
         const priceHtml = (product.sale_price && product.sale_price < product.regular_price)
             ? `<div class="flex flex-col">
-                <span class="text-lg font-bold text-brand-600">$${product.sale_price.toFixed(2)}</span>
-                <span class="text-xs text-slate-400 line-through">$${product.regular_price.toFixed(2)}</span>
+                <span class="text-lg font-bold text-brand-600">₹${product.sale_price.toFixed(2)}</span>
+                <span class="text-xs text-slate-400 line-through">₹${product.regular_price.toFixed(2)}</span>
                </div>`
-            : `<span class="text-lg font-bold text-slate-900">$${product.regular_price.toFixed(2)}</span>`;
+            : `<span class="text-lg font-bold text-slate-900">₹${product.regular_price.toFixed(2)}</span>`;
 
         if (currentView === 'grid') {
             return `
@@ -80,6 +112,31 @@ function renderProducts() {
             `;
         }
     }).join('');
+
+    // Pagination HTML
+    const paginationContainer = document.getElementById('products-pagination');
+    if (paginationContainer) {
+        if (totalPages > 1) {
+            paginationContainer.innerHTML = `
+                <div class="flex items-center justify-between mt-6 px-2">
+                    <span class="text-sm text-slate-500">Showing ${startIndex + 1} to ${Math.min(startIndex + productsPerPage, filtered.length)} of ${filtered.length} entries</span>
+                    <div class="flex items-center gap-2">
+                        <button onclick="changeProductPage(${currentProductPage - 1})" ${currentProductPage === 1 ? 'disabled' : ''} 
+                            class="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-medium ${currentProductPage === 1 ? 'text-slate-400 bg-slate-50 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-50 bg-white transition-colors'}">
+                            Previous
+                        </button>
+                        <span class="text-sm font-medium text-slate-700 mx-2">Page ${currentProductPage} of ${totalPages}</span>
+                        <button onclick="changeProductPage(${currentProductPage + 1})" ${currentProductPage === totalPages ? 'disabled' : ''} 
+                            class="px-3 py-1.5 rounded-lg border border-slate-200 text-sm font-medium ${currentProductPage === totalPages ? 'text-slate-400 bg-slate-50 cursor-not-allowed' : 'text-slate-600 hover:bg-slate-50 bg-white transition-colors'}">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            `;
+        } else {
+            paginationContainer.innerHTML = '';
+        }
+    }
 }
 
 function getStockBadge(product) {
@@ -130,6 +187,7 @@ function setView(view) {
 }
 
 function filterProducts() {
+    currentProductPage = 1;
     renderProducts();
 }
 
@@ -144,6 +202,7 @@ function openEditModal(id) {
     document.getElementById('modal-title').innerText = 'Edit Product';
     document.getElementById('modal-subtitle').innerText = `SKU: ${currentProduct.sku}`;
     document.getElementById('edit-name').value = currentProduct.name;
+    document.getElementById('edit-type').value = currentProduct.type || 'simple';
     document.getElementById('edit-sku').value = currentProduct.sku;
     document.getElementById('edit-regular-price').value = currentProduct.regular_price || '';
     document.getElementById('edit-sale-price').value = currentProduct.sale_price || '';
@@ -153,12 +212,15 @@ function openEditModal(id) {
     document.getElementById('edit-description').value = currentProduct.description || '';
     document.getElementById('edit-manage-stock').checked = currentProduct.manageStock !== false;
 
+    toggleVariationsLayer();
+
     const tagSelect = document.getElementById('edit-tags');
     if (tagSelect) {
         Array.from(tagSelect.options).forEach(opt => {
             opt.selected = (currentProduct.tags || []).includes(opt.value);
         });
     }
+    initTagsSelect();
 
     const statusObj = document.getElementById(`status-${currentProduct.status}`);
     if (statusObj) statusObj.checked = true;
@@ -181,6 +243,7 @@ function openAddProductModal() {
     document.getElementById('modal-title').innerText = 'Add New Product';
     document.getElementById('modal-subtitle').innerText = 'Create a new product listing';
     document.getElementById('edit-name').value = '';
+    document.getElementById('edit-type').value = 'simple';
     document.getElementById('edit-sku').value = 'SKU-' + Math.random().toString(36).substr(2, 6).toUpperCase();
     document.getElementById('edit-regular-price').value = '';
     document.getElementById('edit-sale-price').value = '';
@@ -188,6 +251,7 @@ function openAddProductModal() {
 
     const tagSelect = document.getElementById('edit-tags');
     if (tagSelect) tagSelect.selectedIndex = -1;
+    initTagsSelect();
 
     document.getElementById('edit-stock').value = '0';
     document.getElementById('edit-threshold').value = '10';
@@ -196,6 +260,8 @@ function openAddProductModal() {
 
     const stockStatusObj = document.getElementById('status-instock');
     if (stockStatusObj) stockStatusObj.checked = true;
+
+    toggleVariationsLayer();
 
     toggleStockManagement();
     if (typeof renderImagePreviews === 'function') renderImagePreviews();
@@ -312,13 +378,17 @@ function renderAttributes() {
     const container = document.getElementById('attributes-container');
     if (!container) return;
 
+    // Destroy existing instances
+    attributeSelectInstances.forEach(instance => instance.destroy());
+    attributeSelectInstances = [];
+
     if (wooAttributes.length === 0) {
         container.innerHTML = tempAttributes.map((attr, idx) => `
             <div class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
                 <input type="text" placeholder="Name (e.g. Color)" value="${attr.name}" 
                     onchange="updateAttribute(${idx}, 'name', this.value)"
                     class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm">
-                <input type="text" placeholder="Value (e.g. Red)" value="${attr.value}" 
+                <input type="text" placeholder="Value (e.g. Red, Blue)" value="${attr.value}" 
                     onchange="updateAttribute(${idx}, 'value', this.value)"
                     class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm">
                 <button onclick="removeAttribute(${idx})" class="p-2 text-slate-400 hover:text-red-500">
@@ -344,8 +414,8 @@ function renderAttributes() {
                     ${wooAttributes.map(wa => `<option value="${wa.name}" ${attr.name === wa.name ? 'selected' : ''}>${wa.name}</option>`).join('')}
                 </select>
                 
-                <select multiple onchange="updateMultiAttribute(${idx}, this)" ${!chosenAttrObj ? 'disabled' : ''}
-                    class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm cursor-pointer ${!chosenAttrObj ? 'bg-slate-100 opacity-50' : ''}" style="height: 60px;">
+                <select multiple ${!chosenAttrObj ? 'disabled' : ''}
+                    class="multi-attribute-select flex-1 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm cursor-pointer ${!chosenAttrObj ? 'bg-slate-100 opacity-50' : ''}">
                     ${optionsHtml}
                 </select>
                 <button onclick="removeAttribute(${idx})" class="p-2 text-slate-400 hover:text-red-500">
@@ -354,21 +424,137 @@ function renderAttributes() {
             </div>
         `;
     }).join('');
+
+    // Initialize Tom Select for multi-attributes
+    document.querySelectorAll('.multi-attribute-select').forEach((el, idx) => {
+        if (!el.disabled) {
+            const instance = new TomSelect(el, {
+                plugins: ['remove_button'],
+                create: true,
+                persist: false,
+                placeholder: 'Select items...',
+                onChange: function (value) {
+                    // TomSelect value is an array of strings for multiple selects
+                    tempAttributes[idx].value = value.join(', ');
+                }
+            });
+            attributeSelectInstances.push(instance);
+        }
+    });
 }
 
 function updateAttributeName(idx, newName) { tempAttributes[idx].name = newName; tempAttributes[idx].value = ''; renderAttributes(); }
 function addAttributeField() { tempAttributes.push({ name: '', value: '' }); renderAttributes(); }
 function updateAttribute(idx, field, value) { tempAttributes[idx][field] = value; }
-function updateMultiAttribute(idx, selectObj) { const selectedOptions = Array.from(selectObj.selectedOptions).map(opt => opt.value); tempAttributes[idx].value = selectedOptions.join(', '); }
 function removeAttribute(idx) { tempAttributes.splice(idx, 1); renderAttributes(); }
+
+// Variation Logic
+function toggleVariationsLayer() {
+    const typeSelect = document.getElementById('edit-type');
+    const varSection = document.getElementById('variations-section');
+    if (typeSelect && varSection) {
+        if (typeSelect.value === 'variable') {
+            varSection.classList.remove('hidden');
+        } else {
+            varSection.classList.add('hidden');
+        }
+    }
+}
+
+// Bind event listener to the dropdown
+document.addEventListener('DOMContentLoaded', () => {
+    const typeSelect = document.getElementById('edit-type');
+    if (typeSelect) {
+        typeSelect.addEventListener('change', toggleVariationsLayer);
+    }
+});
+
+function previewVariations() {
+    const container = document.getElementById('variations-preview-container');
+    if (!container) return;
+
+    // Filter valid attributes
+    const validAttrs = tempAttributes.filter(a => a.name.trim() !== '' && a.value.trim() !== '');
+    if (validAttrs.length === 0) {
+        container.innerHTML = '<p class="text-xs text-amber-500">Please add attributes and values first.</p>';
+        return;
+    }
+
+    // Split comma-separated values into arrays
+    const attrOptionsList = validAttrs.map(a => ({
+        name: a.name,
+        options: a.value.split(',').map(s => s.trim()).filter(s => s !== '')
+    }));
+
+    // Generate cartesian product
+    const cartesian = (arrays) => arrays.reduce((acc, curr) =>
+        acc.flatMap(c => curr.map(n => [...c, n])), [[]]
+    );
+
+    const permutations = cartesian(attrOptionsList.map(a => a.options));
+
+    if (permutations.length === 0 || (permutations.length === 1 && permutations[0].length === 0)) {
+        container.innerHTML = '<p class="text-xs text-amber-500">Not enough values to generate variations.</p>';
+        return;
+    }
+
+    let html = `<div class="bg-white border text-sm text-slate-800 border-slate-200 rounded-lg max-h-48 overflow-y-auto">
+        <table class="w-full text-left">
+            <thead class="bg-slate-50 sticky top-0 border-b border-slate-200">
+                <tr>
+                    <th class="py-2 px-3 font-medium">Variation Combination</th>
+                    <th class="py-2 px-3 font-medium text-right bg-slate-50">Status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">`;
+
+    permutations.forEach(combo => {
+        const comboString = combo.map((val, idx) => `<span class="bg-brand-50 text-brand-700 px-2 rounded font-medium text-xs">${attrOptionsList[idx].name}: ${val}</span>`).join(' + ');
+        html += `
+            <tr class="hover:bg-slate-50/50">
+                <td class="py-2 px-3 flex flex-wrap gap-1">${comboString}</td>
+                <td class="py-2 px-3 text-right text-xs"><span class="text-emerald-500 font-semibold"><i class="fas fa-magic"></i> Ready</span></td>
+            </tr>`;
+    });
+
+    html += `</tbody></table></div>
+        <p class="text-xs text-slate-500 mt-2"><i class="fas fa-info-circle text-brand-500"></i> ${permutations.length} variations will be built natively on save.</p>`;
+
+    container.innerHTML = html;
+}
+
+// Preloader Helpers
+function showPreloader(text = 'Processing...') {
+    const preloader = document.getElementById('global-preloader');
+    const preloaderText = document.getElementById('preloader-text');
+    if (preloader) {
+        if (preloaderText) preloaderText.textContent = text;
+        preloader.classList.remove('hidden');
+        preloader.classList.add('flex');
+    }
+}
+
+function hidePreloader() {
+    const preloader = document.getElementById('global-preloader');
+    if (preloader) {
+        preloader.classList.add('hidden');
+        preloader.classList.remove('flex');
+    }
+}
 
 // Save/Delete Products
 async function saveProduct() {
-    const tagSelect = document.getElementById('edit-tags');
-    const selectedTags = tagSelect ? Array.from(tagSelect.selectedOptions).map(opt => opt.value) : [];
+    let selectedTags = [];
+    if (tagsSelectInstance) {
+        selectedTags = tagsSelectInstance.items;
+    } else {
+        const tagSelect = document.getElementById('edit-tags');
+        selectedTags = tagSelect ? Array.from(tagSelect.selectedOptions).map(opt => opt.value) : [];
+    }
 
     const data = {
         name: document.getElementById('edit-name').value,
+        type: document.getElementById('edit-type').value,
         sku: document.getElementById('edit-sku').value,
         regular_price: parseFloat(document.getElementById('edit-regular-price').value) || 0,
         sale_price: document.getElementById('edit-sale-price').value ? parseFloat(document.getElementById('edit-sale-price').value) : '',
@@ -387,6 +573,7 @@ async function saveProduct() {
     else data.status = 'instock';
 
     try {
+        showPreloader('Saving product...');
         if (currentProduct) {
             await api.put(`/products/${currentProduct._id}`, data);
             if (typeof showToast === 'function') showToast('Product updated successfully', 'success');
@@ -398,6 +585,8 @@ async function saveProduct() {
         if (typeof refreshData === 'function') await refreshData();
     } catch (error) {
         if (typeof showToast === 'function') showToast(error.message, 'error');
+    } finally {
+        hidePreloader();
     }
 }
 
@@ -406,10 +595,13 @@ async function deleteProduct() {
     if (!confirm('Are you sure you want to delete this product?')) return;
 
     try {
+        showPreloader('Deleting product...');
         await api.delete(`/products/${currentProduct._id}`);
         closeModal();
         if (typeof showToast === 'function') showToast('Product deleted', 'success');
     } catch (error) {
         if (typeof showToast === 'function') showToast(error.message, 'error');
+    } finally {
+        hidePreloader();
     }
 }

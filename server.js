@@ -155,6 +155,105 @@ async function organizeR2Images(req, productData, productId) {
     return updatedImages;
 }
 
+// Helper to resolve tag names to WooCommerce Tag IDs
+async function resolveTags(tagNames) {
+    if (!tagNames || tagNames.length === 0) return [];
+
+    try {
+        const existingTagsReq = await WooCommerce.get("products/tags", { per_page: 100 });
+        const existingTags = existingTagsReq.data;
+
+        let resolvedTags = [];
+        for (const tagName of tagNames) {
+            let match = existingTags.find(t => t.name.toLowerCase() === tagName.toLowerCase());
+            if (match) {
+                resolvedTags.push({ id: match.id });
+            } else {
+                try {
+                    const newTag = await WooCommerce.post("products/tags", { name: tagName });
+                    resolvedTags.push({ id: newTag.data.id });
+                } catch (err) {
+                    console.error("Error creating tag", err.message);
+                }
+            }
+        }
+        return resolvedTags;
+    } catch (e) {
+        console.error("Error fetching tags for resolution:", e.message);
+        return [];
+    }
+}
+
+// Helper to sync variations for Variable products
+async function syncVariations(wooId, productData, wooData) {
+    if (wooData.type !== 'variable') return;
+    if (!wooData.attributes || wooData.attributes.length === 0) return;
+
+    try {
+        const cartesian = (arrays) => arrays.reduce((acc, curr) =>
+            acc.flatMap(c => curr.map(n => [...c, n])), [[]]
+        );
+        const attrOptions = wooData.attributes.filter(a => a.variation);
+        if (attrOptions.length === 0) return;
+
+        const permutations = cartesian(attrOptions.map(a => a.options));
+
+        const existingReq = await WooCommerce.get(`products/${wooId}/variations`, { per_page: 100 });
+        const existingVariations = existingReq.data;
+
+        const variationsToCreate = [];
+        const variationsToUpdate = [];
+
+        permutations.forEach(combo => {
+            let attrsToMatch = combo.map((val, idx) => ({
+                name: attrOptions[idx].name,
+                option: val
+            }));
+
+            let match = existingVariations.find(ev => {
+                return ev.attributes.length === attrsToMatch.length && attrsToMatch.every(atm => {
+                    return ev.attributes.some(eva => eva.name === atm.name && eva.option === atm.option);
+                });
+            });
+
+            let varPayload = {
+                regular_price: productData.regular_price ? productData.regular_price.toString() : '0',
+                manage_stock: productData.manageStock,
+                stock_quantity: Math.floor((productData.stock || 0) / permutations.length),
+                attributes: attrsToMatch
+            };
+            if (productData.sale_price) varPayload.sale_price = productData.sale_price.toString();
+
+            if (match) {
+                varPayload.id = match.id;
+                variationsToUpdate.push(varPayload);
+            } else {
+                variationsToCreate.push(varPayload);
+            }
+        });
+
+        const variationsToDelete = existingVariations.filter(ev => {
+            return !permutations.find(combo => {
+                let attrsToMatch = combo.map((val, idx) => ({ name: attrOptions[idx].name, option: val }));
+                return ev.attributes.length === attrsToMatch.length && attrsToMatch.every(atm => {
+                    return ev.attributes.some(eva => eva.name === atm.name && eva.option === atm.option);
+                });
+            });
+        }).map(ev => ev.id);
+
+        const batchData = {};
+        if (variationsToCreate.length > 0) batchData.create = variationsToCreate;
+        if (variationsToUpdate.length > 0) batchData.update = variationsToUpdate;
+        if (variationsToDelete.length > 0) batchData.delete = variationsToDelete;
+
+        if (Object.keys(batchData).length > 0) {
+            await WooCommerce.post(`products/${wooId}/variations/batch`, batchData);
+        }
+    } catch (e) {
+        console.error("Error syncing variations", e.response?.data || e.message);
+    }
+}
+
 // Routes
 
 // Auth Routes
@@ -311,6 +410,7 @@ const mapWooToLocal = (woo) => ({
     _id: woo.id.toString(), // Keep _id key for frontend compat
     id: woo.id,
     name: woo.name,
+    type: woo.type || 'simple',
     sku: woo.sku,
     description: woo.short_description || woo.description,
     price: parseFloat(woo.price) || 0,
@@ -321,6 +421,7 @@ const mapWooToLocal = (woo) => ({
     status: woo.stock_status,
     manageStock: woo.manage_stock,
     category: woo.categories && woo.categories.length > 0 ? woo.categories[0].name : 'Uncategorized',
+    tags: woo.tags ? woo.tags.map(t => t.name) : [],
     images: woo.images.map(img => img.src),
     attributes: woo.attributes.map(attr => ({ name: attr.name, value: attr.options.join(', ') })),
     lastUpdated: woo.date_modified
@@ -372,7 +473,7 @@ app.post('/api/products', authenticateToken, async (req, res) => {
         // 1. Map to WooCommerce Data
         const wooData = {
             name: productData.name,
-            type: 'simple',
+            type: productData.type || 'simple',
             regular_price: productData.regular_price ? productData.regular_price.toString() : '0',
             sale_price: productData.sale_price ? productData.sale_price.toString() : '',
             description: productData.description || '',
@@ -383,6 +484,19 @@ app.post('/api/products', authenticateToken, async (req, res) => {
             low_stock_amount: productData.threshold,
             stock_status: productData.stock > 0 ? 'instock' : 'outofstock'
         };
+
+        if (productData.tags && productData.tags.length > 0) {
+            wooData.tags = await resolveTags(productData.tags);
+        }
+
+        if (productData.attributes && productData.attributes.length > 0) {
+            wooData.attributes = productData.attributes.map(attr => ({
+                name: attr.name,
+                options: attr.value.split(',').map(v => v.trim()),
+                visible: true,
+                variation: wooData.type === 'variable'
+            }));
+        }
 
         // Category matching
         if (productData.category && productData.category !== 'Uncategorized') {
@@ -396,6 +510,11 @@ app.post('/api/products', authenticateToken, async (req, res) => {
         // 2. Create in WooCommerce first to get ID
         const wooResponse = await WooCommerce.post("products", wooData);
         const newWooId = wooResponse.data.id;
+
+        // 2b. Sync variations if variable
+        if (wooData.type === 'variable') {
+            await syncVariations(newWooId, productData, wooData);
+        }
 
         // 3. Move R2 images to the correct folder based on WooCommerce ID
         if (productData.images && productData.images.length > 0) {
@@ -444,6 +563,7 @@ app.put('/api/products/:id', authenticateToken, async (req, res) => {
         // 2. Prepare WooCommerce update data
         const wooData = {
             name: productData.name,
+            type: productData.type || 'simple',
             regular_price: productData.regular_price ? productData.regular_price.toString() : undefined,
             sale_price: productData.sale_price !== undefined ? productData.sale_price.toString() : undefined,
             description: productData.description || '',
@@ -453,6 +573,21 @@ app.put('/api/products/:id', authenticateToken, async (req, res) => {
             low_stock_amount: productData.threshold,
             sku: productData.sku
         };
+
+        if (productData.tags) {
+            wooData.tags = await resolveTags(productData.tags);
+        }
+
+        if (productData.attributes) {
+            wooData.attributes = productData.attributes.map(attr => ({
+                name: attr.name,
+                options: attr.value.split(',').map(v => v.trim()),
+                visible: true,
+                variation: wooData.type === 'variable'
+            }));
+        } else {
+            wooData.attributes = [];
+        }
 
         if (productData.category && productData.category !== 'Uncategorized') {
             try {
@@ -470,6 +605,11 @@ app.put('/api/products/:id', authenticateToken, async (req, res) => {
 
         // 3. Update WooCommerce
         const wooUpdateResponse = await WooCommerce.put(`products/${wooId}`, wooData);
+
+        // 3b. Sync variations if variable
+        if (wooData.type === 'variable') {
+            await syncVariations(wooId, productData, wooData);
+        }
 
         // 4. Log stock changes locally
         if (productData.stock !== undefined && productData.stock !== currentProduct.stock_quantity) {
