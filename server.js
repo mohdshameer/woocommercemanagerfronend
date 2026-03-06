@@ -68,7 +68,28 @@ const attributeSchema = new mongoose.Schema({
     value: String
 });
 
-// Product schema removed - fetching directly from WooCommerce now
+const productSchema = new mongoose.Schema({
+    _id: String, // Use WooCommerce ID as string for easy matching
+    id: Number,
+    name: String,
+    type: { type: String, default: 'simple' },
+    sku: String,
+    description: String,
+    price: Number,
+    regular_price: Number,
+    sale_price: Number,
+    stock: Number,
+    threshold: Number,
+    status: String,
+    manageStock: Boolean,
+    category: String,
+    tags: [String],
+    images: [String],
+    attributes: [attributeSchema],
+    lastUpdated: Date
+});
+
+const Product = mongoose.model('Product', productSchema);
 const stockLogSchema = new mongoose.Schema({
     productId: String, // WooCommerce ID
     sku: String,
@@ -291,7 +312,8 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-app.post('/api/auth/verify', authenticateToken, (req, res) => {
+// Verify Token Route
+app.get('/api/auth/verify', authenticateToken, (req, res) => {
     res.json({ valid: true, user: req.user });
 });
 
@@ -413,9 +435,9 @@ const mapWooToLocal = (woo) => ({
     type: woo.type || 'simple',
     sku: woo.sku,
     description: woo.short_description || woo.description,
-    price: parseFloat(woo.price) || 0,
-    regular_price: parseFloat(woo.regular_price) || 0,
-    sale_price: parseFloat(woo.sale_price) || 0,
+    price: woo.price !== '' && woo.price !== undefined ? parseFloat(woo.price) : '',
+    regular_price: woo.regular_price !== '' && woo.regular_price !== undefined ? parseFloat(woo.regular_price) : '',
+    sale_price: woo.sale_price !== '' && woo.sale_price !== undefined ? parseFloat(woo.sale_price) : '',
     stock: woo.stock_quantity || 0,
     threshold: woo.low_stock_amount || 10,
     status: woo.stock_status,
@@ -431,28 +453,27 @@ const mapWooToLocal = (woo) => ({
 app.get('/api/products', authenticateToken, async (req, res) => {
     try {
         const { search, category, status } = req.query;
-        let params = {
-            per_page: 100,
-            orderby: 'date',
-            order: 'desc'
-        };
+        let query = {};
 
-        if (search) params.search = search;
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { sku: { $regex: search, $options: 'i' } }
+            ];
+        }
 
-        const response = await WooCommerce.get("products", params);
-        let products = response.data.map(mapWooToLocal);
-
-        // Filter by category and status locally if search was used (WC search is broad)
         if (category) {
-            products = products.filter(p => p.category === category);
-        }
-        if (status) {
-            products = products.filter(p => p.status === status);
+            query.category = category;
         }
 
+        if (status) {
+            query.status = status;
+        }
+
+        const products = await Product.find(query).sort({ lastUpdated: -1 });
         res.json(products);
     } catch (error) {
-        console.error("GET Products Error:", error.response?.data || error.message);
+        console.error("GET Products Error:", error.message);
         res.status(500).json({ error: error.message });
     }
 });
@@ -474,8 +495,8 @@ app.post('/api/products', authenticateToken, async (req, res) => {
         const wooData = {
             name: productData.name,
             type: productData.type || 'simple',
-            regular_price: productData.regular_price ? productData.regular_price.toString() : '0',
-            sale_price: productData.sale_price ? productData.sale_price.toString() : '',
+            regular_price: productData.regular_price !== '' ? productData.regular_price.toString() : '',
+            sale_price: productData.sale_price !== '' ? productData.sale_price.toString() : '',
             description: productData.description || '',
             short_description: productData.description || '',
             sku: productData.sku,
@@ -507,9 +528,60 @@ app.post('/api/products', authenticateToken, async (req, res) => {
             } catch (e) { console.error("Cat fetch err:", e.message); }
         }
 
-        // 2. Create in WooCommerce first to get ID
-        const wooResponse = await WooCommerce.post("products", wooData);
-        const newWooId = wooResponse.data.id;
+        // 2. Create locally in MongoDB for instant feedback
+        const localId = 'temp-' + Date.now();
+        const finalProduct = {
+            ...productData,
+            _id: localId,
+            id: Date.now(),
+            stock: productData.stock || 0,
+            threshold: productData.threshold || 10,
+            status: (productData.stock > 0) ? 'instock' : 'outofstock',
+            lastUpdated: new Date()
+        };
+
+        await Product.create(finalProduct);
+
+        io.emit('product:created', finalProduct);
+        res.status(201).json(finalProduct);
+
+        // 3. Background Sync to WooCommerce
+        process.nextTick(async () => {
+            try {
+                const wooResponse = await WooCommerce.post("products", wooData);
+                const newWooId = wooResponse.data.id;
+
+                // Sync variations if variable
+                if (wooData.type === 'variable') {
+                    await syncVariations(newWooId, productData, wooData);
+                }
+
+                // Move R2 images to the correct folder based on WooCommerce ID
+                if (productData.images && productData.images.length > 0) {
+                    const finalImages = await organizeR2Images({ body: { productId: 'temp' } }, productData, newWooId);
+
+                    await WooCommerce.put(`products/${newWooId}`, {
+                        images: finalImages.map(url => ({ src: url, alt: productData.name }))
+                    });
+                    // update local DB with final R2 URLs
+                    await Product.findByIdAndUpdate(localId, { images: finalImages });
+                }
+
+                // Finalize local ID replacement from Woo
+                const wooDbRecord = mapWooToLocal(wooResponse.data);
+                if (wooDbRecord.images && wooDbRecord.images.length === 0 && productData.images && productData.images.length > 0) {
+                    wooDbRecord.images = productData.images; // optimistic UI retainment
+                }
+
+                await Product.findByIdAndDelete(localId); // remove temporary optimistic row
+                await Product.create(wooDbRecord); // insert actual truth row
+
+                io.emit('product:updated', wooDbRecord);
+
+            } catch (bgError) {
+                console.error("Background WooCommerce Create Error:", bgError.message);
+            }
+        });
 
         // 2b. Sync variations if variable
         if (wooData.type === 'variable') {
@@ -542,9 +614,7 @@ app.post('/api/products', authenticateToken, async (req, res) => {
             });
         }
 
-        const finalProduct = mapWooToLocal(wooResponse.data);
-        io.emit('product:created', finalProduct);
-        res.status(201).json(finalProduct);
+        // (Moved to background job)
     } catch (error) {
         console.error("Error creating product:", error.response?.data || error.message);
         res.status(500).json({ error: error.response?.data?.message || error.message });
@@ -564,8 +634,8 @@ app.put('/api/products/:id', authenticateToken, async (req, res) => {
         const wooData = {
             name: productData.name,
             type: productData.type || 'simple',
-            regular_price: productData.regular_price ? productData.regular_price.toString() : undefined,
-            sale_price: productData.sale_price !== undefined ? productData.sale_price.toString() : undefined,
+            regular_price: productData.regular_price !== '' ? productData.regular_price.toString() : '',
+            sale_price: productData.sale_price !== '' ? productData.sale_price.toString() : '',
             description: productData.description || '',
             short_description: productData.description || '',
             manage_stock: productData.manageStock,
@@ -597,21 +667,20 @@ app.put('/api/products/:id', authenticateToken, async (req, res) => {
             } catch (e) { console.error("Cat fetch err:", e.message); }
         }
 
-        // Handle images
-        productData.images = await organizeR2Images(req, productData, wooId);
-        if (productData.images && productData.images.length > 0) {
-            wooData.images = productData.images.map(imgUrl => ({ src: imgUrl, alt: productData.name }));
-        }
+        // 3. Update Locally First
+        const finalProduct = {
+            ...productData,
+            _id: wooId,
+            id: parseInt(wooId),
+            stock: productData.stock || 0,
+            threshold: productData.threshold || 10,
+            status: (productData.stock > 0) ? 'instock' : 'outofstock',
+            lastUpdated: new Date()
+        };
 
-        // 3. Update WooCommerce
-        const wooUpdateResponse = await WooCommerce.put(`products/${wooId}`, wooData);
+        await Product.findByIdAndUpdate(wooId, finalProduct, { upsert: true });
 
-        // 3b. Sync variations if variable
-        if (wooData.type === 'variable') {
-            await syncVariations(wooId, productData, wooData);
-        }
-
-        // 4. Log stock changes locally
+        // 4. Log stock changes locally immediately
         if (productData.stock !== undefined && productData.stock !== currentProduct.stock_quantity) {
             await StockLog.create({
                 productId: wooId,
@@ -625,9 +694,38 @@ app.put('/api/products/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        const finalProduct = mapWooToLocal(wooUpdateResponse.data);
         io.emit('product:updated', finalProduct);
         res.json(finalProduct);
+
+        // 5. Background Sync to WooCommerce
+        process.nextTick(async () => {
+            try {
+                // Handle images to R2
+                productData.images = await organizeR2Images({ body: { productId: wooId } }, productData, wooId);
+                if (productData.images && productData.images.length > 0) {
+                    wooData.images = productData.images.map(imgUrl => ({ src: imgUrl, alt: productData.name }));
+                    await Product.findByIdAndUpdate(wooId, { images: productData.images }); // update local with R2 urls definitively
+                }
+
+                // Update WooCommerce
+                const wooUpdateResponse = await WooCommerce.put(`products/${wooId}`, wooData);
+
+                // Sync variations if variable
+                if (wooData.type === 'variable') {
+                    await syncVariations(wooId, productData, wooData);
+                }
+
+                // Align any background formatting
+                const wooDbRecord = mapWooToLocal(wooUpdateResponse.data);
+                if (productData.images && productData.images.length > 0 && wooDbRecord.images.length === 0) {
+                    wooDbRecord.images = productData.images;
+                }
+                await Product.findByIdAndUpdate(wooId, wooDbRecord);
+
+            } catch (bgError) {
+                console.error("Background PUT Product Error:", bgError.message);
+            }
+        });
     } catch (error) {
         console.error("PUT Product Error:", error.response?.data || error.message);
         res.status(500).json({ error: error.message });
@@ -638,30 +736,34 @@ app.delete('/api/products/:id', authenticateToken, async (req, res) => {
     try {
         const wooId = req.params.id;
 
-        // 1. Delete from WooCommerce
-        await WooCommerce.delete(`products/${wooId}`, { force: true });
-
-        // 2. Cleanup images from R2
-        const prefix = `Products/${wooId}/`;
-        try {
-            const listParams = {
-                Bucket: process.env.R2_BUCKET_NAME || 'sheshopbucket',
-                Prefix: prefix
-            };
-            const listedObjects = await s3.send(new ListObjectsV2Command(listParams));
-            if (listedObjects.Contents && listedObjects.Contents.length > 0) {
-                const deleteParams = {
-                    Bucket: process.env.R2_BUCKET_NAME || 'sheshopbucket',
-                    Delete: { Objects: listedObjects.Contents.map(({ Key }) => ({ Key })) }
-                };
-                await s3.send(new DeleteObjectCommand(deleteParams));
-            }
-        } catch (err) {
-            console.error("Error cleaning up R2 images on delete:", err.message);
-        }
+        // 1. Delete from local MongoDB First
+        await Product.findByIdAndDelete(wooId);
 
         io.emit('product:deleted', { id: wooId });
         res.json({ message: 'Product deleted successfully' });
+
+        // 2. Background cleanup from WooCommerce & R2
+        process.nextTick(async () => {
+            try {
+                await WooCommerce.delete(`products/${wooId}`, { force: true });
+
+                const prefix = `Products/${wooId}/`;
+                const listParams = {
+                    Bucket: process.env.R2_BUCKET_NAME || 'sheshopbucket',
+                    Prefix: prefix
+                };
+                const listedObjects = await s3.send(new ListObjectsV2Command(listParams));
+                if (listedObjects.Contents && listedObjects.Contents.length > 0) {
+                    const deleteParams = {
+                        Bucket: process.env.R2_BUCKET_NAME || 'sheshopbucket',
+                        Delete: { Objects: listedObjects.Contents.map(({ Key }) => ({ Key })) }
+                    };
+                    await s3.send(new DeleteObjectCommand(deleteParams));
+                }
+            } catch (bgError) {
+                console.error("Background DELETE Product Error:", bgError.message);
+            }
+        });
     } catch (error) {
         console.error("DELETE Product Error:", error.response?.data || error.message);
         res.status(500).json({ error: error.message });
@@ -733,19 +835,26 @@ app.get('/api/stock-logs', authenticateToken, async (req, res) => {
 // Dashboard Stats
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
     try {
-        const response = await WooCommerce.get("products", { per_page: 100 });
-        const products = response.data;
+        const total = await Product.countDocuments();
+        const outOfStock = await Product.countDocuments({ stock: { $lte: 0 } });
+        const lowStock = await Product.countDocuments({ manageStock: true, stock: { $gt: 0, $lte: 10 } });
 
-        const total = products.length;
-        const outOfStock = products.filter(p => (p.stock_quantity || 0) === 0).length;
-        const lowStock = products.filter(p => p.manage_stock && (p.stock_quantity || 0) > 0 && (p.stock_quantity || 0) <= (p.low_stock_amount || 10)).length;
-
-        let totalValValue = 0;
-        products.forEach(p => {
-            if (p.price) {
-                totalValValue += (parseFloat(p.price) * (p.stock_quantity || 0));
+        // Aggregate total value
+        const valAgg = await Product.aggregate([
+            {
+                $project: {
+                    itemValue: { $multiply: ["$price", "$stock"] }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    totalValue: { $sum: "$itemValue" }
+                }
             }
-        });
+        ]);
+
+        const totalValValue = valAgg.length > 0 ? valAgg[0].totalValue : 0;
 
         // Recent activity from MongoDB logs
         const recentLogs = await StockLog.find()
@@ -831,11 +940,45 @@ io.on('connection', (socket) => {
     });
 });
 
+// Core Sync Function
+async function performWooCommerceSync() {
+    try {
+        let allProducts = [];
+        let page = 1;
+        let totalPages = 1;
+
+        console.log("Starting WooCommerce Sync...");
+        do {
+            const response = await WooCommerce.get("products", { per_page: 100, page: page });
+            allProducts = allProducts.concat(response.data);
+            totalPages = parseInt(response.headers['x-wp-totalpages'] || 1);
+            page++;
+        } while (page <= totalPages);
+
+        const localData = allProducts.map(mapWooToLocal);
+
+        await Product.deleteMany({});
+        if (localData.length > 0) {
+            await Product.insertMany(localData);
+        }
+
+        console.log(`Sync complete. Loaded ${localData.length} products to Local Database.`);
+        io.emit('sync:complete', { count: localData.length });
+        return localData.length;
+    } catch (error) {
+        console.error("WooCommerce Sync Error:", error.response?.data || error.message);
+        throw error;
+    }
+}
+
 // Sync with WooCommerce Route
 app.post('/api/woocommerce/sync', authenticateToken, async (req, res) => {
-    // Sync is now direct. This endpoint just acts as a "Refresh" trigger for the client
-    // to re-fetch high-level stats if we add server-side caching later.
-    res.json({ message: "Dashboard is now live. Data is directly sourced from WooCommerce." });
+    try {
+        const count = await performWooCommerceSync();
+        res.json({ message: "Sync complete! Local cache is perfectly aligned.", count });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Start server
@@ -843,4 +986,15 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
     await initializeAdmin();
+
+    // Auto-hydrate if database is entirely empty
+    try {
+        const currentCount = await Product.countDocuments();
+        if (currentCount === 0) {
+            console.log("No products found in local database. Auto-hydrating...");
+            await performWooCommerceSync();
+        }
+    } catch (e) {
+        console.error("Auto-hydrate check failed:", e.message);
+    }
 });

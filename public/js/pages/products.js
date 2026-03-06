@@ -57,12 +57,25 @@ function renderProducts() {
         const stockBadge = getStockBadge(product);
         const image = product.images[0] || 'https://via.placeholder.com/400';
 
-        const priceHtml = (product.sale_price && product.sale_price < product.regular_price)
-            ? `<div class="flex flex-col">
-                <span class="text-lg font-bold text-brand-600">₹${product.sale_price.toFixed(2)}</span>
-                <span class="text-xs text-slate-400 line-through">₹${product.regular_price.toFixed(2)}</span>
-               </div>`
-            : `<span class="text-lg font-bold text-slate-900">₹${product.regular_price.toFixed(2)}</span>`;
+        // Fallback to product.price for variable products where regular_price is empty
+        const regularPrice = product.regular_price !== '' && product.regular_price != null
+            ? parseFloat(product.regular_price)
+            : (product.price !== '' && product.price != null ? parseFloat(product.price) : null);
+        const salePrice = product.sale_price !== '' && product.sale_price != null ? parseFloat(product.sale_price) : null;
+
+        let priceHtml = '';
+        if (regularPrice !== null) {
+            if (salePrice !== null && salePrice < regularPrice) {
+                priceHtml = `<div class="flex flex-col">
+                    <span class="text-lg font-bold text-brand-600">₹${salePrice.toFixed(2)}</span>
+                    <span class="text-xs text-slate-400 line-through">₹${regularPrice.toFixed(2)}</span>
+                   </div>`;
+            } else {
+                priceHtml = `<span class="text-lg font-bold text-slate-900">₹${regularPrice.toFixed(2)}</span>`;
+            }
+        } else {
+            priceHtml = `<span class="text-sm font-medium text-slate-400">No price</span>`;
+        }
 
         if (currentView === 'grid') {
             return `
@@ -204,8 +217,12 @@ function openEditModal(id) {
     document.getElementById('edit-name').value = currentProduct.name;
     document.getElementById('edit-type').value = currentProduct.type || 'simple';
     document.getElementById('edit-sku').value = currentProduct.sku;
-    document.getElementById('edit-regular-price').value = currentProduct.regular_price || '';
-    document.getElementById('edit-sale-price').value = currentProduct.sale_price || '';
+    document.getElementById('edit-regular-price').value = (currentProduct.regular_price !== undefined && currentProduct.regular_price !== null && currentProduct.regular_price !== '')
+        ? currentProduct.regular_price
+        : (currentProduct.price !== undefined && currentProduct.price !== null && currentProduct.price !== '' ? currentProduct.price : '');
+
+    document.getElementById('edit-sale-price').value = (currentProduct.sale_price !== undefined && currentProduct.sale_price !== null && currentProduct.sale_price !== '')
+        ? currentProduct.sale_price : '';
     document.getElementById('edit-category').value = currentProduct.category || '';
     document.getElementById('edit-stock').value = currentProduct.stock;
     document.getElementById('edit-threshold').value = currentProduct.threshold;
@@ -214,13 +231,15 @@ function openEditModal(id) {
 
     toggleVariationsLayer();
 
-    const tagSelect = document.getElementById('edit-tags');
-    if (tagSelect) {
-        Array.from(tagSelect.options).forEach(opt => {
-            opt.selected = (currentProduct.tags || []).includes(opt.value);
-        });
-    }
     initTagsSelect();
+    if (tagsSelectInstance && currentProduct.tags) {
+        // Add any missing tags as options first
+        currentProduct.tags.forEach(tag => {
+            tagsSelectInstance.addOption({ value: tag, text: tag });
+        });
+        // Select all the product's tags
+        tagsSelectInstance.setValue(currentProduct.tags);
+    }
 
     const statusObj = document.getElementById(`status-${currentProduct.status}`);
     if (statusObj) statusObj.checked = true;
@@ -556,8 +575,8 @@ async function saveProduct() {
         name: document.getElementById('edit-name').value,
         type: document.getElementById('edit-type').value,
         sku: document.getElementById('edit-sku').value,
-        regular_price: parseFloat(document.getElementById('edit-regular-price').value) || 0,
-        sale_price: document.getElementById('edit-sale-price').value ? parseFloat(document.getElementById('edit-sale-price').value) : '',
+        regular_price: document.getElementById('edit-regular-price').value !== '' ? document.getElementById('edit-regular-price').value : '',
+        sale_price: document.getElementById('edit-sale-price').value !== '' ? document.getElementById('edit-sale-price').value : '',
         category: document.getElementById('edit-category').value,
         tags: selectedTags,
         stock: parseInt(document.getElementById('edit-stock').value) || 0,

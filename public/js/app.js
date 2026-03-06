@@ -239,4 +239,31 @@ async function syncWooCommerce() {
     }
 }
 
-window.onload = init;
+// Auto-Logout on Inactivity (5 minutes)
+let inactivityTimer;
+const INACTIVITY_TIME_LIMIT = 5 * 60 * 1000; // 5 minutes
+
+function resetInactivityTimer() {
+    clearTimeout(inactivityTimer);
+    // Only track inactivity if the user is actually logged in
+    if (typeof authToken !== 'undefined' && authToken) {
+        inactivityTimer = setTimeout(() => {
+            if (typeof showToast === 'function') {
+                showToast('Logged out due to inactivity', 'warning');
+            }
+            if (typeof logout === 'function') {
+                logout();
+            }
+        }, INACTIVITY_TIME_LIMIT);
+    }
+}
+
+// Reset timer on any user activity
+['mousemove', 'mousedown', 'keypress', 'touchmove', 'scroll', 'click'].forEach(evt =>
+    document.addEventListener(evt, resetInactivityTimer, { passive: true, capture: true })
+);
+
+window.onload = () => {
+    init();
+    resetInactivityTimer();
+};
