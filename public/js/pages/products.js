@@ -1,3 +1,129 @@
+// Products Page HTML and Initialization
+let currentProduct = null;
+let tempImages = [];
+let tempAttributes = [];
+
+export function initProductsPage() {
+    const container = document.getElementById('section-products');
+    if (!container) return;
+    container.innerHTML = `
+        <!-- Top Bar -->
+        <div class="bg-white border-b border-slate-200 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-30">
+            <div class="flex items-center gap-4 flex-1 max-w-2xl">
+                <div class="relative flex-1">
+                    <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+                    <input type="text" id="searchInput" placeholder="Search products, SKUs..."
+                        class="w-full pl-10 pr-4 py-2.5 bg-slate-100 border-0 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all text-sm"
+                        oninput="filterProducts()">
+                </div>
+                <select id="category-filter" onchange="filterProducts()"
+                    class="hidden md:block px-4 py-2.5 bg-slate-100 border-0 rounded-xl text-sm focus:ring-2 focus:ring-brand-500">
+                    <option value="">All Categories</option>
+                </select>
+                <button onclick="toggleFilters()"
+                    class="p-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition-colors relative md:hidden">
+                    <i class="fas fa-filter"></i>
+                </button>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button onclick="openAddProductModal()"
+                    class="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-slate-900 rounded-xl font-medium transition-all shadow-lg shadow-brand-500/30 active:scale-95">
+                    <i class="fas fa-plus"></i>
+                    <span class="hidden sm:inline">Add Product</span>
+                </button>
+                <button onclick="syncWooCommerce()" id="sync-woo-btn"
+                    class="flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-slate-900 rounded-xl font-medium transition-all shadow-lg shadow-purple-500/30 active:scale-95">
+                    <i class="fab fa-wordpress"></i>
+                    <span class="hidden sm:inline">Sync WooCommerce</span>
+                </button>
+                <div class="h-8 w-px bg-slate-200 mx-1 hidden sm:block"></div>
+                <button onclick="refreshData()"
+                    class="p-2.5 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
+                    title="Refresh">
+                    <i class="fas fa-sync-alt" id="refresh-icon"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50/50">
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-slate-500 text-sm font-medium">Total Products</span>
+                    <div class="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600">
+                        <i class="fas fa-cubes text-sm"></i>
+                    </div>
+                </div>
+                <p class="text-2xl font-bold text-slate-800" id="stat-total">0</p>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-slate-500 text-sm font-medium">Low Stock</span>
+                    <div class="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center text-amber-600">
+                        <i class="fas fa-exclamation-triangle text-sm"></i>
+                    </div>
+                </div>
+                <p class="text-2xl font-bold text-slate-800" id="stat-low">0</p>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-slate-500 text-sm font-medium">Out of Stock</span>
+                    <div class="w-8 h-8 bg-red-50 rounded-lg flex items-center justify-center text-red-600">
+                        <i class="fas fa-times-circle text-sm"></i>
+                    </div>
+                </div>
+                <p class="text-2xl font-bold text-slate-800" id="stat-out">0</p>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-slate-500 text-sm font-medium">Inventory Value</span>
+                    <div
+                        class="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
+                        <i class="fas fa-rupee-sign text-sm"></i>
+                    </div>
+                </div>
+                <p class="text-2xl font-bold text-slate-800" id="stat-value">₹0</p>
+            </div>
+        </div>
+
+        <!-- Products Grid -->
+        <div class="flex-1 overflow-y-auto px-6 pb-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-bold text-slate-800">Products</h2>
+                <div class="flex items-center gap-2">
+                    <button onclick="setView('grid')" id="btn-grid"
+                        class="p-2 rounded-lg bg-white border border-slate-200 text-brand-600 shadow-sm">
+                        <i class="fas fa-th-large"></i>
+                    </button>
+                    <button onclick="setView('list')" id="btn-list"
+                        class="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-white hover:shadow-sm transition-all">
+                        <i class="fas fa-list"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div id="products-container"
+                class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                <!-- Products injected here -->
+            </div>
+
+            <div id="products-pagination"></div>
+
+            <div id="empty-state" class="hidden flex flex-col items-center justify-center py-20 text-center">
+                <div class="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mb-4">
+                    <i class="fas fa-search text-3xl text-slate-400"></i>
+                </div>
+                <h3 class="text-lg font-semibold text-slate-700 mb-2">No products found</h3>
+                <p class="text-slate-500 max-w-sm">Try adjusting your search or add new products.</p>
+            </div>
+        </div>
+    `;
+}
+
 let currentProductPage = 1;
 const productsPerPage = 10;
 let tagsSelectInstance = null;
@@ -35,7 +161,7 @@ function renderProducts() {
     const categorySelect = document.getElementById('category-filter');
     const category = categorySelect ? categorySelect.value : '';
 
-    let filtered = products.filter(p => {
+    let filtered = window.products.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(searchTerm) || p.sku.toLowerCase().includes(searchTerm);
         const matchesCategory = !category || p.category === category;
         return matchesSearch && matchesCategory;
@@ -45,7 +171,7 @@ function renderProducts() {
     if (emptyState) emptyState.classList.toggle('hidden', filtered.length > 0);
 
     const navCount = document.getElementById('nav-count');
-    if (navCount) navCount.textContent = products.length;
+    if (navCount) navCount.textContent = window.products.length;
 
     const totalPages = Math.ceil(filtered.length / productsPerPage);
     if (currentProductPage > totalPages) currentProductPage = totalPages || 1;
@@ -77,7 +203,7 @@ function renderProducts() {
             priceHtml = `<span class="text-sm font-medium text-slate-400">No price</span>`;
         }
 
-        if (currentView === 'grid') {
+        if (window.currentView === 'grid') {
             return `
                 <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden hover:shadow-xl hover:border-brand-200 transition-all duration-300 group cursor-pointer" onclick="openEditModal('${product._id}')">
                     <div class="aspect-square overflow-hidden bg-slate-100 relative">
@@ -175,7 +301,7 @@ function getStockTextColor(product) {
 }
 
 function setView(view) {
-    currentView = view;
+    window.currentView = view;
     const btnGrid = document.getElementById('btn-grid');
     if (btnGrid) {
         btnGrid.className = view === 'grid'
@@ -206,7 +332,7 @@ function filterProducts() {
 
 // Product Management (Modals, Logic)
 function openEditModal(id) {
-    currentProduct = products.find(p => p._id === id);
+    currentProduct = window.products.find(p => p._id === id);
     if (!currentProduct) return;
 
     tempImages = [...(currentProduct.images || [])];
@@ -255,6 +381,7 @@ function openEditModal(id) {
 }
 
 function openAddProductModal() {
+    console.log('openAddProductModal clicked!');
     currentProduct = null;
     tempImages = [];
     tempAttributes = [];
@@ -323,7 +450,7 @@ async function quickAdjustStock(id, delta) {
         });
         if (typeof showToast === 'function') showToast(`Stock ${delta > 0 ? 'increased' : 'decreased'}`, 'success');
         if (typeof refreshData === 'function') await refreshData();
-        if (currentSection === 'inventory' && typeof renderInventory === 'function') renderInventory();
+        if (window.currentSection === 'inventory' && typeof renderInventory === 'function') renderInventory();
     } catch (error) {
         if (typeof showToast === 'function') showToast(error.message, 'error');
     }
@@ -370,7 +497,7 @@ async function handleFiles(files) {
 
         const response = await fetch('/api/upload', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${authToken}` },
+            headers: { 'Authorization': `Bearer ${window.authToken}` },
             body: formData
         });
 
@@ -401,7 +528,7 @@ function renderAttributes() {
     attributeSelectInstances.forEach(instance => instance.destroy());
     attributeSelectInstances = [];
 
-    if (wooAttributes.length === 0) {
+    if (window.wooAttributes.length === 0) {
         container.innerHTML = tempAttributes.map((attr, idx) => `
             <div class="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
                 <input type="text" placeholder="Name (e.g. Color)" value="${attr.name}" 
@@ -419,7 +546,7 @@ function renderAttributes() {
     }
 
     container.innerHTML = tempAttributes.map((attr, idx) => {
-        const chosenAttrObj = wooAttributes.find(wa => wa.name === attr.name);
+        const chosenAttrObj = window.wooAttributes.find(wa => wa.name === attr.name);
         const currentValues = attr.value ? attr.value.split(',').map(s => s.trim()) : [];
         const optionsHtml = chosenAttrObj
             ? chosenAttrObj.options.map(opt => `<option value="${opt}" ${currentValues.includes(opt) ? 'selected' : ''}>${opt}</option>`).join('')
@@ -430,7 +557,7 @@ function renderAttributes() {
                 <select onchange="updateAttributeName(${idx}, this.value)"
                     class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm cursor-pointer">
                     <option value="">Select Attribute</option>
-                    ${wooAttributes.map(wa => `<option value="${wa.name}" ${attr.name === wa.name ? 'selected' : ''}>${wa.name}</option>`).join('')}
+                    ${window.wooAttributes.map(wa => `<option value="${wa.name}" ${attr.name === wa.name ? 'selected' : ''}>${wa.name}</option>`).join('')}
                 </select>
                 
                 <select multiple ${!chosenAttrObj ? 'disabled' : ''}
@@ -654,3 +781,29 @@ async function rewriteDescriptionWithAI() {
         btn.innerHTML = OriginalIcon;
     }
 }
+
+// Expose global functions
+window.filterProducts = filterProducts;
+window.openAddProductModal = openAddProductModal;
+window.setView = setView;
+window.openEditModal = openEditModal;
+window.changeProductPage = changeProductPage;
+window.removeImage = removeImage;
+window.updateAttributeName = updateAttributeName;
+window.addAttributeField = addAttributeField;
+window.updateAttribute = updateAttribute;
+window.removeAttribute = removeAttribute;
+window.toggleVariationsLayer = toggleVariationsLayer;
+window.previewVariations = previewVariations;
+window.closeModal = closeModal;
+window.toggleStockManagement = toggleStockManagement;
+window.adjustStock = adjustStock;
+window.quickAdjustStock = quickAdjustStock;
+window.handleDragOver = handleDragOver;
+window.handleDragLeave = handleDragLeave;
+window.handleDrop = handleDrop;
+window.handleFileSelect = handleFileSelect;
+window.saveProduct = saveProduct;
+window.deleteProduct = deleteProduct;
+window.rewriteDescriptionWithAI = rewriteDescriptionWithAI;
+window.renderProducts = renderProducts;

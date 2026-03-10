@@ -1,4 +1,20 @@
 // Activity Log Functions
+export function initActivityPage() {
+    const container = document.getElementById('section-activity');
+    if (!container) return;
+    container.innerHTML = `
+        <div class="bg-white border-b border-slate-200 px-6 py-4">
+            <h2 class="text-xl font-bold text-slate-800">Activity Log</h2>
+            <p class="text-sm text-slate-500">Recent stock changes and updates</p>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6">
+            <div id="activity-list" class="space-y-3">
+                <!-- Activity items injected here -->
+            </div>
+        </div>
+    `;
+}
+
 
 function renderActivity(logs) {
     const container = document.getElementById('activity-list');
@@ -45,3 +61,7 @@ async function loadActivity() {
         if (typeof showToast === 'function') showToast('Failed to load activity', 'error');
     }
 }
+
+// Expose global functions
+window.renderActivity = renderActivity;
+window.loadActivity = loadActivity;

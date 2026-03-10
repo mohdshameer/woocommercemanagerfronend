@@ -1,4 +1,68 @@
 // Settings Logic
+export function initSettingsPage() {
+    const container = document.getElementById('section-settings');
+    if (!container) return;
+    container.innerHTML = `
+        <div class="bg-white border-b border-slate-200 px-6 py-4">
+            <h2 class="text-xl font-bold text-slate-800">Settings</h2>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6 max-w-2xl">
+            <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+                <h3 class="font-bold text-slate-800 mb-4">Account Settings</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                        <input type="text" id="settings-username"
+                            class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg" readonly>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                        <input type="email" id="settings-email"
+                            class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg">
+                    </div>
+                    <button onclick="updateSettings()"
+                        class="px-6 py-2 bg-brand-600 text-slate-900 rounded-lg font-medium hover:bg-brand-700 transition-colors">
+                        Save Changes
+                    </button>
+                </div>
+            </div>
+
+            <div id="user-management-section" class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-bold text-slate-800">User Management</h3>
+                    <button onclick="openAddUserModal()"
+                        class="text-sm px-3 py-1.5 bg-brand-50 text-brand-600 rounded-lg font-medium hover:bg-brand-100 transition-colors">
+                        <i class="fas fa-plus mr-1"></i>Add User
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-slate-600">
+                        <thead class="bg-slate-50 text-slate-500 font-medium">
+                            <tr>
+                                <th class="px-4 py-2 rounded-l-lg">Username</th>
+                                <th class="px-4 py-2">Email</th>
+                                <th class="px-4 py-2">Role</th>
+                                <th class="px-4 py-2 rounded-r-lg text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-table-body" class="divide-y divide-slate-100">
+                            <!-- Users injected here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200 p-6">
+                <h3 class="font-bold text-slate-800 mb-4">Danger Zone</h3>
+                <button onclick="logout()"
+                    class="w-full py-3 border-2 border-red-200 text-red-600 rounded-xl font-medium hover:bg-red-50 transition-colors">
+                    <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                </button>
+            </div>
+        </div>
+    `;
+}
+
 
 async function updateSettings() {
     const btn = event.currentTarget;
@@ -11,10 +75,10 @@ async function updateSettings() {
     const newEmail = document.getElementById('settings-email').value;
 
     try {
-        if (currentUser) {
-            currentUser.username = newUsername;
-            currentUser.email = newEmail;
-            localStorage.setItem('user', JSON.stringify(currentUser));
+        if (window.currentUser) {
+            window.currentUser.username = newUsername;
+            window.currentUser.email = newEmail;
+            localStorage.setItem('user', JSON.stringify(window.currentUser));
         }
 
         const userNameEl = document.getElementById('user-name');
@@ -178,3 +242,13 @@ async function deleteUserAccount(id, username) {
         showToast(error.message || 'Failed to delete user', 'error');
     }
 }
+
+// Expose global functions
+window.updateSettings = updateSettings;
+window.openAddUserModal = openAddUserModal;
+window.openChangePasswordModal = openChangePasswordModal;
+window.deleteUserAccount = deleteUserAccount;
+window.closeUserModal = closeUserModal;
+window.createUser = createUser;
+window.updateUserPassword = updateUserPassword;
+window.loadUsers = loadUsers;

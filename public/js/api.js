@@ -1,6 +1,6 @@
 // Global State
-let authToken = localStorage.getItem('token');
-let currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+window.authToken = localStorage.getItem('token');
+window.currentUser = JSON.parse(localStorage.getItem('user') || 'null');
 
 // API Helper
 const api = {
@@ -9,7 +9,7 @@ const api = {
         const config = {
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': authToken ? `Bearer ${authToken}` : ''
+                'Authorization': window.authToken ? `Bearer ${window.authToken}` : ''
             },
             ...options
         };

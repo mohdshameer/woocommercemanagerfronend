@@ -19,4 +19,6 @@ async function updateStats() {
         console.error('Failed to update stats');
     }
 }
-
+// Expose global functions
+window.updateStatsDisplay = updateStatsDisplay;
+window.updateStats = updateStats;

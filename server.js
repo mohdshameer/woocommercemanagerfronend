@@ -465,9 +465,9 @@ const mapWooToLocal = (woo) => ({
     type: woo.type || 'simple',
     sku: woo.sku,
     description: woo.short_description || woo.description,
-    price: woo.price !== '' && woo.price !== undefined ? parseFloat(woo.price) : '',
-    regular_price: woo.regular_price !== '' && woo.regular_price !== undefined ? parseFloat(woo.regular_price) : '',
-    sale_price: woo.sale_price !== '' && woo.sale_price !== undefined ? parseFloat(woo.sale_price) : '',
+    price: (woo.price && woo.price !== '') ? parseFloat(woo.price) : 0,
+    regular_price: (woo.regular_price && woo.regular_price !== '') ? parseFloat(woo.regular_price) : 0,
+    sale_price: (woo.sale_price && woo.sale_price !== '') ? parseFloat(woo.sale_price) : 0,
     stock: woo.stock_quantity || 0,
     threshold: woo.low_stock_amount || 10,
     status: woo.stock_status,
@@ -608,41 +608,24 @@ app.post('/api/products', authenticateToken, async (req, res) => {
 
                 io.emit('product:updated', wooDbRecord);
 
+                // 5. Log activity
+                if (productData.stock > 0) {
+                    await StockLog.create({
+                        productId: newWooId.toString(),
+                        sku: productData.sku,
+                        name: productData.name,
+                        type: 'restock',
+                        quantity: productData.stock,
+                        previousStock: 0,
+                        newStock: productData.stock,
+                        reason: 'Initial creation'
+                    });
+                }
+
             } catch (bgError) {
                 console.error("Background WooCommerce Create Error:", bgError.message);
             }
         });
-
-        // 2b. Sync variations if variable
-        if (wooData.type === 'variable') {
-            await syncVariations(newWooId, productData, wooData);
-        }
-
-        // 3. Move R2 images to the correct folder based on WooCommerce ID
-        if (productData.images && productData.images.length > 0) {
-            const finalImages = await organizeR2Images(req, productData, newWooId);
-
-            // 4. Update WooCommerce with final R2 URLs
-            await WooCommerce.put(`products/${newWooId}`, {
-                images: finalImages.map(url => ({ src: url, alt: productData.name }))
-            });
-
-            wooResponse.data.images = finalImages.map(url => ({ src: url }));
-        }
-
-        // 5. Log activity
-        if (productData.stock > 0) {
-            await StockLog.create({
-                productId: newWooId.toString(),
-                sku: productData.sku,
-                name: productData.name,
-                type: 'restock',
-                quantity: productData.stock,
-                previousStock: 0,
-                newStock: productData.stock,
-                reason: 'Initial creation'
-            });
-        }
 
         // (Moved to background job)
     } catch (error) {
@@ -928,6 +911,9 @@ app.get('/api/tags', authenticateToken, async (req, res) => {
             res.json([]); // Fallback empty
         }
     } catch (error) {
+        const fs = require('fs');
+        fs.appendFileSync('server-errors.txt', `GET Tags Error: ${JSON.stringify(error.response?.data || error.message)}\n`);
+        console.error("GET Tags Error:", JSON.stringify(error.response?.data || error.message));
         res.status(500).json({ error: error.message });
     }
 });
@@ -953,6 +939,9 @@ app.get('/api/attributes', authenticateToken, async (req, res) => {
 
         res.json(fullAttributes);
     } catch (error) {
+        const fs = require('fs');
+        fs.appendFileSync('server-errors.txt', `GET Attributes Error: ${JSON.stringify(error.response?.data || error.message)}\n`);
+        console.error("GET Attributes Error:", JSON.stringify(error.response?.data || error.message));
         res.status(500).json({ error: error.message });
     }
 });
@@ -997,6 +986,7 @@ async function performWooCommerceSync() {
         return localData.length;
     } catch (error) {
         console.error("WooCommerce Sync Error:", error.response?.data || error.message);
+        console.error("FULL SYNC ERROR TRACE:", error);
         throw error;
     }
 }
@@ -1026,5 +1016,6 @@ server.listen(PORT, async () => {
         }
     } catch (e) {
         console.error("Auto-hydrate check failed:", e.message);
+        console.error("FULL INIT ERROR TRACE:", e);
     }
 });

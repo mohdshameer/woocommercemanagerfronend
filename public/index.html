@@ -59,55 +59,7 @@
 <body class="bg-slate-50 text-slate-800 antialiased overflow-hidden">
 
     <!-- Login Screen -->
-    <div id="login-screen"
-        class="fixed inset-0 z-50 bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8 slide-in-right">
-            <div class="text-center mb-8">
-                <div class="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 drop-shadow-lg">
-                    <img src="https://images.sheshoponline.in/Products/logo.webp" alt="Site Logo"
-                        class="w-full h-full object-contain">
-                </div>
-                <h1 class="text-2xl font-bold text-slate-800">SheShop Product Manager</h1>
-                <p class="text-slate-500">Sign in to manage your inventory</p>
-            </div>
-
-            <form id="login-form" class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
-                    <input type="text" id="login-username" required
-                        class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
-                        placeholder="admin">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                    <div class="relative">
-                        <input type="password" id="login-password" required
-                            class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all"
-                            placeholder="••••••••">
-                        <button type="button" onclick="togglePassword()"
-                            class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                            <i class="fas fa-eye" id="toggle-icon"></i>
-                        </button>
-                    </div>
-                </div>
-                <div class="flex items-center justify-between text-sm">
-                    <label class="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox"
-                            class="w-4 h-4 text-brand-600 rounded border-slate-300 focus:ring-brand-500">
-                        <span class="text-slate-600">Remember me</span>
-                    </label>
-                    <a href="#" class="text-brand-600 hover:text-brand-700 font-medium">Forgot password?</a>
-                </div>
-                <button type="submit" id="login-btn"
-                    class="w-full py-3 bg-brand-600 hover:bg-brand-700 text-slate-900 font-semibold rounded-xl shadow-lg shadow-brand-500/30 transition-all active:scale-95 flex items-center justify-center gap-2">
-                    <span>Sign In</span>
-                    <i class="fas fa-arrow-right"></i>
-                </button>
-            </form>
-
-        </div>
-    </div>
-    </div>
+    <div id="login-screen" class="fixed inset-0 z-50 bg-gradient-to-br from-slate-900 to-slate-800 flex items-center justify-center p-4"></div>
 
     <!-- Main App (Hidden initially) -->
     <div id="main-app" class="hidden h-screen flex overflow-hidden">
@@ -203,211 +155,16 @@
         <main class="flex-1 flex flex-col min-w-0 overflow-hidden bg-slate-50 pt-14 lg:pt-0">
 
             <!-- Products Section -->
-            <div id="section-products" class="section-content flex flex-col h-full">
-                <!-- Top Bar -->
-                <div
-                    class="bg-white border-b border-slate-200 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 sticky top-0 z-30">
-                    <div class="flex items-center gap-4 flex-1 max-w-2xl">
-                        <div class="relative flex-1">
-                            <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                            <input type="text" id="searchInput" placeholder="Search products, SKUs..."
-                                class="w-full pl-10 pr-4 py-2.5 bg-slate-100 border-0 rounded-xl focus:ring-2 focus:ring-brand-500 focus:bg-white transition-all text-sm"
-                                oninput="filterProducts()">
-                        </div>
-                        <select id="category-filter" onchange="filterProducts()"
-                            class="hidden md:block px-4 py-2.5 bg-slate-100 border-0 rounded-xl text-sm focus:ring-2 focus:ring-brand-500">
-                            <option value="">All Categories</option>
-                        </select>
-                        <button onclick="toggleFilters()"
-                            class="p-2.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 transition-colors relative md:hidden">
-                            <i class="fas fa-filter"></i>
-                        </button>
-                    </div>
-
-                    <div class="flex items-center gap-3">
-                        <button onclick="openAddProductModal()"
-                            class="flex items-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-slate-900 rounded-xl font-medium transition-all shadow-lg shadow-brand-500/30 active:scale-95">
-                            <i class="fas fa-plus"></i>
-                            <span class="hidden sm:inline">Add Product</span>
-                        </button>
-                        <button onclick="syncWooCommerce()" id="sync-woo-btn"
-                            class="flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-slate-900 rounded-xl font-medium transition-all shadow-lg shadow-purple-500/30 active:scale-95">
-                            <i class="fab fa-wordpress"></i>
-                            <span class="hidden sm:inline">Sync WooCommerce</span>
-                        </button>
-                        <div class="h-8 w-px bg-slate-200 mx-1 hidden sm:block"></div>
-                        <button onclick="refreshData()"
-                            class="p-2.5 hover:bg-slate-100 rounded-xl text-slate-600 transition-colors"
-                            title="Refresh">
-                            <i class="fas fa-sync-alt" id="refresh-icon"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Stats Bar -->
-                <div class="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50/50">
-                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-slate-500 text-sm font-medium">Total Products</span>
-                            <div class="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center text-blue-600">
-                                <i class="fas fa-cubes text-sm"></i>
-                            </div>
-                        </div>
-                        <p class="text-2xl font-bold text-slate-800" id="stat-total">0</p>
-                    </div>
-
-                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-slate-500 text-sm font-medium">Low Stock</span>
-                            <div class="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center text-amber-600">
-                                <i class="fas fa-exclamation-triangle text-sm"></i>
-                            </div>
-                        </div>
-                        <p class="text-2xl font-bold text-slate-800" id="stat-low">0</p>
-                    </div>
-
-                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-slate-500 text-sm font-medium">Out of Stock</span>
-                            <div class="w-8 h-8 bg-red-50 rounded-lg flex items-center justify-center text-red-600">
-                                <i class="fas fa-times-circle text-sm"></i>
-                            </div>
-                        </div>
-                        <p class="text-2xl font-bold text-slate-800" id="stat-out">0</p>
-                    </div>
-
-                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                        <div class="flex items-center justify-between mb-2">
-                            <span class="text-slate-500 text-sm font-medium">Inventory Value</span>
-                            <div
-                                class="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
-                                <i class="fas fa-rupee-sign text-sm"></i>
-                            </div>
-                        </div>
-                        <p class="text-2xl font-bold text-slate-800" id="stat-value">₹0</p>
-                    </div>
-                </div>
-
-                <!-- Products Grid -->
-                <div class="flex-1 overflow-y-auto px-6 pb-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h2 class="text-lg font-bold text-slate-800">Products</h2>
-                        <div class="flex items-center gap-2">
-                            <button onclick="setView('grid')" id="btn-grid"
-                                class="p-2 rounded-lg bg-white border border-slate-200 text-brand-600 shadow-sm">
-                                <i class="fas fa-th-large"></i>
-                            </button>
-                            <button onclick="setView('list')" id="btn-list"
-                                class="p-2 rounded-lg bg-slate-100 text-slate-600 hover:bg-white hover:shadow-sm transition-all">
-                                <i class="fas fa-list"></i>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="products-container"
-                        class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                        <!-- Products injected here -->
-                    </div>
-
-                    <div id="products-pagination"></div>
-
-                    <div id="empty-state" class="hidden flex flex-col items-center justify-center py-20 text-center">
-                        <div class="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-                            <i class="fas fa-search text-3xl text-slate-400"></i>
-                        </div>
-                        <h3 class="text-lg font-semibold text-slate-700 mb-2">No products found</h3>
-                        <p class="text-slate-500 max-w-sm">Try adjusting your search or add new products.</p>
-                    </div>
-                </div>
-            </div>
+            <div id="section-products" class="section-content flex flex-col h-full"></div>
 
             <!-- Inventory Section -->
-            <div id="section-inventory" class="section-content hidden flex-col h-full">
-                <div class="bg-white border-b border-slate-200 px-6 py-4">
-                    <h2 class="text-xl font-bold text-slate-800">Inventory Management</h2>
-                    <p class="text-sm text-slate-500">Real-time stock levels and adjustments</p>
-                </div>
-                <div class="flex-1 overflow-y-auto p-6">
-                    <div id="inventory-list" class="space-y-3">
-                        <!-- Inventory items injected here -->
-                    </div>
-                    <div id="inventory-pagination"></div>
-                </div>
-            </div>
+            <div id="section-inventory" class="section-content hidden flex-col h-full"></div>
 
             <!-- Activity Section -->
-            <div id="section-activity" class="section-content hidden flex-col h-full">
-                <div class="bg-white border-b border-slate-200 px-6 py-4">
-                    <h2 class="text-xl font-bold text-slate-800">Activity Log</h2>
-                    <p class="text-sm text-slate-500">Recent stock changes and updates</p>
-                </div>
-                <div class="flex-1 overflow-y-auto p-6">
-                    <div id="activity-list" class="space-y-3">
-                        <!-- Activity items injected here -->
-                    </div>
-                </div>
-            </div>
+            <div id="section-activity" class="section-content hidden flex-col h-full"></div>
 
             <!-- Settings Section -->
-            <div id="section-settings" class="section-content hidden flex-col h-full">
-                <div class="bg-white border-b border-slate-200 px-6 py-4">
-                    <h2 class="text-xl font-bold text-slate-800">Settings</h2>
-                </div>
-                <div class="flex-1 overflow-y-auto p-6 max-w-2xl">
-                    <div class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-                        <h3 class="font-bold text-slate-800 mb-4">Account Settings</h3>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
-                                <input type="text" id="settings-username"
-                                    class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg" readonly>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                                <input type="email" id="settings-email"
-                                    class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg">
-                            </div>
-                            <button onclick="updateSettings()"
-                                class="px-6 py-2 bg-brand-600 text-slate-900 rounded-lg font-medium hover:bg-brand-700 transition-colors">
-                                Save Changes
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="user-management-section" class="bg-white rounded-2xl border border-slate-200 p-6 mb-6">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="font-bold text-slate-800">User Management</h3>
-                            <button onclick="openAddUserModal()"
-                                class="text-sm px-3 py-1.5 bg-brand-50 text-brand-600 rounded-lg font-medium hover:bg-brand-100 transition-colors">
-                                <i class="fas fa-plus mr-1"></i>Add User
-                            </button>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left text-sm text-slate-600">
-                                <thead class="bg-slate-50 text-slate-500 font-medium">
-                                    <tr>
-                                        <th class="px-4 py-2 rounded-l-lg">Username</th>
-                                        <th class="px-4 py-2">Email</th>
-                                        <th class="px-4 py-2">Role</th>
-                                        <th class="px-4 py-2 rounded-r-lg text-right">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="users-table-body" class="divide-y divide-slate-100">
-                                    <!-- Users injected here -->
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-2xl border border-slate-200 p-6">
-                        <h3 class="font-bold text-slate-800 mb-4">Danger Zone</h3>
-                        <button onclick="logout()"
-                            class="w-full py-3 border-2 border-red-200 text-red-600 rounded-xl font-medium hover:bg-red-50 transition-colors">
-                            <i class="fas fa-sign-out-alt mr-2"></i>Logout
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <div id="section-settings" class="section-content hidden flex-col h-full"></div>
 
         </main>
     </div>
@@ -701,14 +458,19 @@
             id="preloader-text">Loading...</div>
     </div>
 
+    <!-- Expose API globally if needed -->
     <script src="/js/api.js"></script>
-    <script src="/js/pages/login.js"></script>
+
+    <!-- Page Modules -->
+    <script type="module" src="/js/pages/login.js"></script>
+    <script type="module" src="/js/pages/products.js"></script>
+    <script type="module" src="/js/pages/inventory.js"></script>
+    <script type="module" src="/js/pages/activity.js"></script>
+    <script type="module" src="/js/pages/settings.js"></script>
+    
+    <!-- Other scripts -->
     <script src="/js/pages/dashboard.js"></script>
-    <script src="/js/pages/inventory.js"></script>
-    <script src="/js/pages/activity.js"></script>
-    <script src="/js/pages/products.js"></script>
-    <script src="/js/pages/settings.js"></script>
-    <script src="/js/app.js"></script>
+    <script type="module" src="/js/app.js"></script>
 
     <!-- Make sure to expose important global variables from index.html if necessary -->
 

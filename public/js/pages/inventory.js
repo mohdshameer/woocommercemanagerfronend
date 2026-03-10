@@ -1,4 +1,21 @@
 // Inventory Management Functions
+export function initInventoryPage() {
+    const container = document.getElementById('section-inventory');
+    if (!container) return;
+    container.innerHTML = `
+        <div class="bg-white border-b border-slate-200 px-6 py-4">
+            <h2 class="text-xl font-bold text-slate-800">Inventory Management</h2>
+            <p class="text-sm text-slate-500">Real-time stock levels and adjustments</p>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6">
+            <div id="inventory-list" class="space-y-3">
+                <!-- Inventory items injected here -->
+            </div>
+            <div id="inventory-pagination"></div>
+        </div>
+    `;
+}
+
 let currentInventoryPage = 1;
 const inventoryPerPage = 20;
 
@@ -11,7 +28,7 @@ function renderInventory() {
     const container = document.getElementById('inventory-list');
     if (!container) return;
 
-    const sorted = [...products].sort((a, b) => a.stock - b.stock);
+    const sorted = [...window.products].sort((a, b) => a.stock - b.stock);
 
     const totalPages = Math.ceil(sorted.length / inventoryPerPage);
     if (currentInventoryPage > totalPages) currentInventoryPage = totalPages || 1;
@@ -74,8 +91,11 @@ function renderInventory() {
                     </div>
                 </div>
             `;
-        } else {
             paginationContainer.innerHTML = '';
         }
     }
 }
+
+// Expose global functions
+window.changeInventoryPage = changeInventoryPage;
+window.renderInventory = renderInventory;

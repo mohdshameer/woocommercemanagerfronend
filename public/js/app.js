@@ -1,15 +1,36 @@
 // Core App Initialization & Sockets
 
+import { initLoginPage } from './pages/login.js';
+import { initProductsPage } from './pages/products.js';
+import { initInventoryPage } from './pages/inventory.js';
+import { initActivityPage } from './pages/activity.js';
+import { initSettingsPage } from './pages/settings.js';
+
 let socket = null;
-let currentSection = 'products';
-let currentView = 'grid';
+window.currentSection = 'products';
+window.currentView = 'grid';
 
 // Initialize App
 async function init() {
-    if (typeof initAuth === 'function') {
-        await initAuth();
+    // 1. Inject HTML for all pages first
+    initLoginPage();
+    initProductsPage();
+    initInventoryPage();
+    initActivityPage();
+    initSettingsPage();
+
+    // 2. Start Auth Flow
+    // The initAuth function lives in login.js, but gets triggered here
+    // We should make sure initAuth is exported and called.
+    if (typeof window.initAuth === 'function') {
+        await window.initAuth();
     }
 }
+
+// Ensure functions called from HTML onclick attributes are globally available
+window.showSection = showSection;
+window.toggleMobileMenu = toggleMobileMenu;
+
 
 // Socket.io
 function initializeSocket() {
@@ -33,56 +54,53 @@ function initializeSocket() {
     });
 
     socket.on('stock:live-update', (data) => {
-        if (typeof products !== 'undefined') {
-            const product = products.find(p => p._id === data.productId);
+        if (window.products) {
+            const product = window.products.find(p => p._id === data.productId);
             if (product) {
                 product.stock = data.product.stock;
                 product.status = data.product.status;
                 product.lastUpdated = data.product.lastUpdated;
                 if (typeof renderProducts === 'function') renderProducts();
-                if (currentSection === 'inventory' && typeof renderInventory === 'function') renderInventory();
-                showToast(`${product.name}: Stock changed by ${data.change}`, 'info');
+                if (window.currentSection === 'inventory' && typeof renderInventory === 'function') renderInventory();
+                if (typeof showToast === 'function') showToast(`${product.name}: Stock changed by ${data.change}`, 'info');
             }
         }
     });
 
     socket.on('product:created', (product) => {
-        if (typeof products !== 'undefined') {
-            products.unshift(product);
+        if (window.products) {
+            window.products.unshift(product);
             if (typeof renderProducts === 'function') renderProducts();
-            if (typeof updateStats === 'function') updateStats();
-            showToast('New product added', 'success');
+            if (typeof window.updateStats === 'function') window.updateStats();
+            if (typeof showToast === 'function') showToast('New product added', 'success');
         }
     });
 
     socket.on('product:updated', (product) => {
-        if (typeof products !== 'undefined') {
-            const idx = products.findIndex(p => p._id === product._id);
+        if (window.products) {
+            const idx = window.products.findIndex(p => p._id === product._id);
             if (idx !== -1) {
-                products[idx] = product;
+                window.products[idx] = product;
                 if (typeof renderProducts === 'function') renderProducts();
-                if (typeof updateStats === 'function') updateStats();
+                if (typeof window.updateStats === 'function') window.updateStats();
             }
         }
     });
 
     socket.on('product:deleted', (data) => {
-        if (typeof products !== 'undefined') {
-            products = products.filter(p => p._id !== data.id);
+        if (window.products) {
+            window.products = window.products.filter(p => p._id !== data.id);
             if (typeof renderProducts === 'function') renderProducts();
-            if (typeof updateStats === 'function') updateStats();
+            if (typeof window.updateStats === 'function') window.updateStats();
         }
     });
 }
 
 // Data Loading
-let products = [];
-let categoriesList = [];
-let tagsList = [];
-let wooAttributes = [];
-let tempImages = [];
-let tempAttributes = [];
-let currentProduct = null;
+window.products = [];
+window.categoriesList = [];
+window.tagsList = [];
+window.wooAttributes = [];
 
 async function loadInitialData() {
     try {
@@ -94,26 +112,26 @@ async function loadInitialData() {
             api.get('/attributes').catch(() => [])
         ]);
 
-        products = productsData || [];
-        categoriesList = categories || [];
-        tagsList = tags || [];
-        wooAttributes = attributes || [];
+        window.products = productsData || [];
+        window.categoriesList = categories || [];
+        window.tagsList = tags || [];
+        window.wooAttributes = attributes || [];
 
         const catSelect = document.getElementById('category-filter');
         if (catSelect) {
             catSelect.innerHTML = '<option value="">All Categories</option>' +
-                categoriesList.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+                window.categoriesList.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
         }
 
         const editCat = document.getElementById('edit-category');
         if (editCat) {
             editCat.innerHTML = '<option value="">Select Category</option>' +
-                categoriesList.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+                window.categoriesList.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
         }
 
         const editTags = document.getElementById('edit-tags');
         if (editTags) {
-            editTags.innerHTML = tagsList.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+            editTags.innerHTML = window.tagsList.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
         }
 
         if (typeof renderProducts === 'function') renderProducts();
@@ -161,7 +179,7 @@ function showSection(section) {
     if (section === 'settings') {
         const userManagementSection = document.getElementById('user-management-section');
         if (userManagementSection) {
-            if (currentUser && currentUser.role === 'admin') {
+            if (window.currentUser && window.currentUser.role === 'admin') {
                 userManagementSection.classList.remove('hidden');
                 if (typeof loadUsers === 'function') loadUsers();
             } else {
@@ -267,3 +285,11 @@ window.onload = () => {
     init();
     resetInactivityTimer();
 };
+
+// Expose global functions
+window.syncWooCommerce = syncWooCommerce;
+window.refreshData = refreshData;
+window.showToast = showToast;
+window.toggleFilters = toggleFilters;
+window.loadInitialData = loadInitialData;
+window.initializeSocket = initializeSocket;
