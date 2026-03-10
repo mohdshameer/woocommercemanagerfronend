@@ -624,3 +624,33 @@ async function deleteProduct() {
         hidePreloader();
     }
 }
+
+async function rewriteDescriptionWithAI() {
+    const descInput = document.getElementById('edit-description');
+    const description = descInput.value;
+    const btn = document.getElementById('rewrite-ai-btn');
+    const OriginalIcon = btn.innerHTML;
+
+    if (!description || description.trim() === '') {
+        if (typeof showToast === 'function') showToast('Please enter some description text first to rewrite.', 'warning');
+        return;
+    }
+
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1.5"></i>Rewriting...';
+
+        const response = await api.post('/ai/rephrase-description', { description });
+
+        if (response && response.rephrased) {
+            descInput.value = response.rephrased;
+            if (typeof showToast === 'function') showToast('Description rewritten successfully!', 'success');
+        }
+    } catch (error) {
+        console.error('AI Rewrite Error:', error);
+        if (typeof showToast === 'function') showToast(error.message || 'Failed to rewrite description.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = OriginalIcon;
+    }
+}

@@ -11,7 +11,11 @@ const multer = require('multer');
 const fs = require('fs');
 const WooCommerceRestApi = require("@woocommerce/woocommerce-rest-api").default;
 const { S3Client, PutObjectCommand, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 require('dotenv').config();
+
+// Configure Google Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 // Configure Cloudflare R2 S3 Client
 const s3 = new S3Client({
@@ -276,6 +280,32 @@ async function syncVariations(wooId, productData, wooData) {
 }
 
 // Routes
+
+// AI Rephrase Route
+app.post('/api/ai/rephrase-description', authenticateToken, async (req, res) => {
+    try {
+        const { description } = req.body;
+
+        if (!description || description.trim() === '') {
+            return res.status(400).json({ error: 'Description is required for rephrasing' });
+        }
+
+        if (!process.env.GEMINI_API_KEY) {
+            return res.status(500).json({ error: 'Gemini API Key is not configured on the server.' });
+        }
+
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const prompt = `Rewrite the following product description to be engaging, professional, and well-structured. It should be approximately 150 words long and use HTML tags for formatting if necessary (like <p>, <ul>, <li>, <strong>).\n\nOriginal Description:\n${description}`;
+
+        const result = await model.generateContent(prompt);
+        const responseText = result.response.text();
+
+        res.json({ rephrased: responseText });
+    } catch (error) {
+        console.error("Gemini AI Error:", error);
+        res.status(500).json({ error: 'Failed to rephrase description' });
+    }
+});
 
 // Auth Routes
 app.post('/api/auth/login', async (req, res) => {
